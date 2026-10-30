@@ -1,10 +1,10 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { List, Clock, MapPin, Calendar, User, Home, HelpCircle, X, Bus, CreditCard, Phone, Mail, Loader2, Download, Receipt, RefreshCw } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { List, Clock, MapPin, Calendar, User, Home, HelpCircle, X, Bus, Car, CreditCard, Phone, Mail, Loader2, Download, Receipt, RefreshCw, ArrowLeft, Ticket, ChevronRight, Star } from "lucide-react";
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import TopNavigation from "@/components/TopNavigation";
+import { Link, useNavigate } from "react-router-dom";
 import UserBottomNavigation from "@/components/UserBottomNavigation";
 import { useUserAuth } from "@/contexts/UserAuthContext";
 import apiService from "@/services/api";
@@ -14,11 +14,40 @@ import { formatDate, formatTime } from "@/lib/utils";
 import { calculateDistance } from "@/lib/distanceUtils";
 
 const Bookings = () => {
+  const navigate = useNavigate();
   const { user, isAuthenticated } = useUserAuth();
   const [activeTab, setActiveTab] = useState("upcoming");
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  // Rating dialog
+  const [ratingBooking, setRatingBooking] = useState(null);
+  const [ratingStars, setRatingStars] = useState(0);
+  const [ratingReview, setRatingReview] = useState('');
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+
+  const submitRating = async () => {
+    if (!ratingBooking || ratingStars < 1) return;
+    try {
+      setIsSubmittingRating(true);
+      const response = await apiService.rateBooking(ratingBooking._id, ratingStars, ratingReview.trim());
+      if (response.success) {
+        const updatedRating = response.data.rating;
+        setBookings(prev => prev.map(b => b._id === ratingBooking._id ? { ...b, rating: updatedRating } : b));
+        setSelectedBooking(prev => (prev && prev._id === ratingBooking._id ? { ...prev, rating: updatedRating } : prev));
+        toast({ title: "Thank you!", description: "Your rating & review have been submitted." });
+        setRatingBooking(null);
+        setRatingStars(0);
+        setRatingReview('');
+      } else {
+        toast({ title: "Error", description: response.error?.message || "Could not submit rating", variant: "destructive" });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Could not submit rating", variant: "destructive" });
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
   const [bookings, setBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -342,7 +371,7 @@ const Bookings = () => {
               cashPaymentStatus === 'collected' ? 'bg-green-500' : 'bg-yellow-500'
             }`}></div>
             <span className="text-xs text-gray-700">
-              Cash: ₹{cashAmount} ({cashPaymentStatus === 'collected' ? 'Collected' : 'Pending'})
+              Cash: ₹{cashAmount} ({cashPaymentStatus === 'collected' ? 'Paid' : 'Pending'})
             </span>
           </div>
         </div>
@@ -379,7 +408,7 @@ const Bookings = () => {
     try {
       setIsDownloading(true);
       const token = localStorage.getItem('token') || localStorage.getItem('userToken') || localStorage.getItem('authToken');
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'}/bookings/${booking._id}/receipt`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}/bookings/${booking._id}/receipt`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -473,735 +502,611 @@ const Bookings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <TopNavigation/>
-      {/* Header */}
-      <div className="bg-primary text-primary-foreground p-4 flex-shrink-0">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-semibold">My Bookings</h1>
-                     <Button 
-             variant="outline" 
-             size="sm"
-             onClick={fetchBookings}
-             className="bg-primary-foreground text-primary hover:bg-primary-foreground/90"
-           >
-             <Loader2 className="w-4 h-4 mr-2" />
-             Refresh
-           </Button>
+    <div className="min-h-screen bg-gray-50/60 flex flex-col font-sans antialiased">
+      {/* Clean Native Mobile Header */}
+      <div className="bg-white text-gray-900 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b border-gray-100 shadow-xs">
+        <button
+          type="button"
+          onClick={() => {
+            if (window.history.length > 1) {
+              navigate(-1);
+            } else {
+              navigate('/');
+            }
+          }}
+          className="p-2 -ml-2 text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+          aria-label="Back"
+        >
+          <ArrowLeft className="w-5 h-5 text-gray-700" />
+        </button>
+        <h1 className="text-lg font-bold text-gray-900 tracking-tight">
+          My Bookings
+        </h1>
+        <div className="w-8" />
+      </div>
+
+      {/* Modern Segmented Pill Tabs */}
+      <div className="max-w-md w-full mx-auto px-4 pt-3 pb-1">
+        <div className="bg-gray-100 p-1 rounded-2xl flex items-center gap-1 border border-gray-200/50 shadow-inner">
+          <button
+            className={`flex-1 py-2 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer select-none ${
+              activeTab === "upcoming"
+                ? "bg-white text-blue-600 shadow-xs scale-[1.01]"
+                : "text-gray-500 hover:text-gray-800"
+            }`}
+            onClick={() => setActiveTab("upcoming")}
+          >
+            <span>Upcoming</span>
+            {upcomingBookings.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                activeTab === "upcoming" ? "bg-blue-100 text-blue-700" : "bg-gray-200 text-gray-600"
+              }`}>
+                {upcomingBookings.length}
+              </span>
+            )}
+          </button>
+          <button
+            className={`flex-1 py-2 px-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer select-none ${
+              activeTab === "past"
+                ? "bg-white text-blue-600 shadow-xs scale-[1.01]"
+                : "text-gray-500 hover:text-gray-800"
+            }`}
+            onClick={() => setActiveTab("past")}
+          >
+            <span>Past Bookings</span>
+            {pastBookings.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                activeTab === "past" ? "bg-blue-100 text-blue-700" : "bg-gray-200 text-gray-600"
+              }`}>
+                {pastBookings.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="sticky top-0 z-40 flex border-b border-border bg-background flex-shrink-0">
-        <button
-          className={`flex-1 py-3 text-sm font-medium ${
-            activeTab === "upcoming"
-              ? "text-primary border-b-2 border-primary"
-              : "text-muted-foreground"
-          }`}
-          onClick={() => setActiveTab("upcoming")}
-        >
-          Upcoming Bookings
-        </button>
-        <button
-          className={`flex-1 py-3 text-sm font-medium ${
-            activeTab === "past"
-              ? "text-primary border-b-2 border-primary"
-              : "text-muted-foreground"
-          }`}
-          onClick={() => setActiveTab("past")}
-        >
-          Past Bookings
-        </button>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 p-3 space-y-3 pb-24 md:pb-6 overflow-y-auto">
+      {/* Content Area */}
+      <div className="flex-1 max-w-md w-full mx-auto px-4 py-3 space-y-3.5 pb-28">
         {isLoading ? (
-          <div className="text-center py-6">
-            <Loader2 className="w-8 h-8 text-muted-foreground mx-auto mb-3 animate-spin" />
-            <p className="text-muted-foreground text-sm">Loading your bookings...</p>
+          <div className="text-center py-16">
+            <Loader2 className="w-9 h-9 text-blue-600 mx-auto mb-3 animate-spin" />
+            <p className="text-gray-600 text-sm font-medium">Loading your journeys...</p>
           </div>
         ) : error ? (
-          <div className="text-center py-6">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-red-600 mb-2 text-sm">{error}</p>
-                             <Button 
-                 variant="outline" 
-                 onClick={fetchBookings}
-                 className="text-red-600 border-red-300 hover:bg-red-50 text-sm"
-               >
-                 Try Again
-               </Button>
+          <div className="text-center py-10">
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-5 shadow-xs">
+              <p className="text-red-600 mb-3 text-sm font-medium">{error}</p>
+              <Button 
+                variant="outline" 
+                onClick={fetchBookings}
+                className="text-red-600 border-red-300 hover:bg-red-50 text-xs rounded-xl"
+              >
+                Try Again
+              </Button>
             </div>
           </div>
         ) : currentBookings.length > 0 ? (
           currentBookings.map((booking) => (
-            <Card key={booking._id} className="p-3 border border-border">
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-foreground text-sm leading-tight">
-                    {getPickupAddress(booking)} → {getDestinationAddress(booking)}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">ID: {booking.bookingNumber}</p>
+            <div
+              key={booking._id}
+              className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition-all duration-200 space-y-3.5"
+            >
+              {/* Card Header: Vehicle + ID & Status */}
+              <div className="flex items-center justify-between gap-2 border-b border-gray-50 pb-2.5">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                    {booking.vehicle?.type?.toLowerCase().includes('car') ? (
+                      <Car className="w-4 h-4" />
+                    ) : (
+                      <Bus className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-gray-900 truncate">
+                      {booking.vehicle?.type || 'Ride'} • {booking.vehicle?.brand || ''} {booking.vehicle?.model || ''}
+                    </p>
+                    <p className="text-[11px] text-gray-400 font-mono">#{booking.bookingNumber}</p>
+                  </div>
                 </div>
-                <div className="flex flex-col space-y-0.5">
-                  <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+
+                <div className="flex flex-col items-end space-y-1 shrink-0">
+                  <span className={`px-2 py-0.5 text-[11px] font-semibold rounded-full border ${
                     ['accepted', 'started'].includes(booking.status)
-                      ? "bg-green-100 text-green-800" 
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
                       : booking.status === 'pending'
-                      ? "bg-yellow-100 text-yellow-800"
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
                       : booking.status === 'completed'
-                      ? "bg-blue-100 text-blue-800"
+                      ? "bg-blue-50 text-blue-700 border-blue-200"
                       : booking.status === 'cancellation_requested'
-                      ? "bg-orange-100 text-orange-800"
+                      ? "bg-orange-50 text-orange-700 border-orange-200"
                       : booking.status === 'cancelled'
-                      ? "bg-red-100 text-red-800"
-                      : "bg-gray-100 text-gray-800"
+                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                      : "bg-gray-50 text-gray-700 border-gray-200"
                   }`}>
                     {booking.status === 'cancellation_requested' 
-                      ? 'Cancellation Requested'
+                      ? 'Cancel Pending'
                       : booking.status.charAt(0).toUpperCase() + booking.status.slice(1)
                     }
                   </span>
-                  
-                  {/* Show refund status for cancelled bookings */}
-                  {booking.status === 'cancelled' && booking.cancellation?.refundStatus && (
-                    <span className={`px-1.5 py-0.5 text-xs rounded-full ${
-                      booking.cancellation.refundStatus === 'pending'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : booking.cancellation.refundStatus === 'initiated'
-                        ? 'bg-blue-100 text-blue-800'
-                        : booking.cancellation.refundStatus === 'completed'
-                        ? 'bg-green-100 text-green-800'
-                        : booking.cancellation.refundStatus === 'failed'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      Refund: {booking.cancellation.refundStatus === 'pending' && 'Pending'}
-                      {booking.cancellation.refundStatus === 'initiated' && 'Initiated'}
-                      {booking.cancellation.refundStatus === 'completed' && 'Completed'}
-                      {booking.cancellation.refundStatus === 'failed' && 'Failed'}
-                    </span>
-                  )}
-                  
-                  {/* Show request status for cancellation requested bookings */}
-                  {booking.status === 'cancellation_requested' && booking.cancellation?.requestStatus && (
-                    <span className={`px-1.5 py-0.5 text-xs rounded-full ${
-                      booking.cancellation.requestStatus === 'pending'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : booking.cancellation.requestStatus === 'approved'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      Request: {booking.cancellation.requestStatus === 'pending' && 'Pending'}
-                      {booking.cancellation.requestStatus === 'approved' && 'Approved'}
-                      {booking.cancellation.requestStatus === 'rejected' && 'Rejected'}
-                    </span>
-                  )}
                 </div>
               </div>
-              
-              <div className="space-y-1.5">
-                {/* Main Date Display - Simple and Clear */}
-                <div className="flex items-center space-x-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-xs text-foreground">
-                    {formatDate(getBookingDate(booking))}
-                    {getReturnDate(booking) && (
-                      <span className="text-blue-600 font-medium">
-                        {' → '}{formatDate(getReturnDate(booking))}
-                      </span>
-                    )}
-                  </span>
-                </div>
-                
-                
-                {/* Round Trip Indicator - Only show if it's actually a round trip */}
-                {getReturnDate(booking) && (
-                  <div className="bg-blue-50 border border-blue-200 rounded p-1.5">
-                    <div className="flex items-center justify-center space-x-1 text-xs">
-                      <span className="text-blue-700 font-medium">🔄</span>
-                      <span className="text-blue-800 font-medium">
-                        Round Trip: {formatDate(getBookingDate(booking))} → {formatDate(getReturnDate(booking))}
-                      </span>
-                      <span className="text-blue-600 font-bold">
-                        ({(() => {
-                          const start = new Date(getBookingDate(booking));
-                          const end = new Date(getReturnDate(booking));
-                          const diffTime = Math.abs(end.getTime() - start.getTime());
-                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                          return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
-                        })()})
-                      </span>
+
+              {/* Visual Route Timeline */}
+              <div className="space-y-2 py-0.5">
+                <div className="flex items-start space-x-3">
+                  <div className="flex flex-col items-center mt-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100" />
+                    <div className="w-0.5 h-7 bg-gray-200 my-0.5" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-rose-100" />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Pickup</p>
+                      <p className="text-xs sm:text-sm font-semibold text-gray-900 line-clamp-1">
+                        {getPickupAddress(booking)}
+                      </p>
                     </div>
-                  </div>
-                )}
-                
-                
-                {/* Trip Type Label */}
-                {(getReturnDate(booking) || getTripType(booking) === 'return') ? (
-                  <div className="flex items-center space-x-1.5">
-                    <div className="w-3.5 h-3.5 text-muted-foreground flex items-center justify-center">
-                      <span className="text-xs font-bold text-blue-600">↔</span>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Destination</p>
+                      <p className="text-xs sm:text-sm font-semibold text-gray-900 line-clamp-1">
+                        {getDestinationAddress(booking)}
+                      </p>
                     </div>
-                    <span className="text-xs text-blue-600 font-medium">
-                      Round Trip
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-1.5">
-                    <div className="w-3.5 h-3.5 text-muted-foreground flex items-center justify-center">
-                      <span className="text-xs font-bold text-gray-600">→</span>
-                    </div>
-                    <span className="text-xs text-gray-600 font-medium">
-                      One Way Trip
-                    </span>
-                  </div>
-                )}
-                
-                <div className="flex items-center space-x-1.5">
-                  <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-xs text-foreground">
-                    {formatTime(getBookingTime(booking))}
-                  </span>
-                </div>
-                {getReturnDate(booking) && (
-                  <div className="flex items-center space-x-1.5">
-                    <div className="w-3.5 h-3.5 text-muted-foreground flex items-center justify-center">
-                      <span className="text-xs font-bold text-green-600">📅</span>
-                    </div>
-                    <span className="text-xs text-green-600 font-medium">
-                      {(() => {
-                        const start = new Date(getBookingDate(booking));
-                        const end = new Date(getReturnDate(booking));
-                        const diffTime = Math.abs(end.getTime() - start.getTime());
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                        return `${diffDays} day${diffDays > 1 ? 's' : ''} trip`;
-                      })()}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-1.5">
-                    <Bus className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs text-foreground">
-                      {booking.vehicle?.type} - {booking.vehicle?.brand} {booking.vehicle?.model}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs text-foreground font-medium">₹{getBookingPricing(booking).totalAmount || 0}</span>
                   </div>
                 </div>
-                
-                {/* Night Stay Note - Only show for round trips */}
-                {isRoundTrip(booking) && (
-                  <div className="bg-amber-50 border border-amber-200 rounded p-2 mt-1">
-                    <div className="flex items-start space-x-1.5">
-                      <div className="w-3.5 h-3.5 text-amber-600 flex items-center justify-center mt-0.5">
-                        <span className="text-xs font-bold">🌙</span>
-                      </div>
-                      <div className="text-xs text-amber-800">
-                        <span className="font-medium">Note:</span> If night stay is required, please pay ₹500 to the driver in addition to the booking amount.
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Show refund amount for cancelled bookings */}
-                {booking.status === 'cancelled' && booking.cancellation?.refundAmount && booking.cancellation.refundAmount > 0 && (
-                  <div className="flex items-center space-x-1.5">
-                    <RefreshCw className="w-3.5 h-3.5 text-green-600" />
-                    <span className="text-xs text-green-600 font-medium">
-                      Refund: ₹{booking.cancellation.refundAmount}
-                    </span>
-                  </div>
-                )}
-                
-                {/* Payment Status Display */}
-                {getPaymentStatusDisplay(booking)}
               </div>
-              
-              <div className="flex space-x-1.5 mt-3">
+
+              {/* Trip Metadata Chips */}
+              <div className="flex items-center justify-between pt-2 border-t border-gray-50 text-xs text-gray-600 flex-wrap gap-2">
+                <div className="flex items-center space-x-1.5 bg-gray-50 px-2.5 py-1 rounded-lg">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="font-medium text-gray-800">{formatDate(getBookingDate(booking))}</span>
+                </div>
+
+                <div className="flex items-center space-x-1.5 bg-gray-50 px-2.5 py-1 rounded-lg">
+                  <Clock className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="font-medium text-gray-800">{formatTime(getBookingTime(booking))}</span>
+                </div>
+
+                <div className="text-right ml-auto">
+                  <span className="text-xs text-gray-400 font-medium">Fare: </span>
+                  <span className="text-base font-bold text-gray-900">
+                    ₹{getBookingPricing(booking).totalAmount || 0}
+                  </span>
+                </div>
+              </div>
+
+              {/* Night Stay Note */}
+              {isRoundTrip(booking) && (
+                <div className="bg-amber-50/80 border border-amber-200/70 rounded-xl p-2.5 text-xs text-amber-800 flex items-start space-x-1.5">
+                  <span className="text-xs">🌙</span>
+                  <p><span className="font-semibold">Night Stay:</span> Driver allowance ₹500 applicable if night halt required.</p>
+                </div>
+              )}
+
+              {/* Payment Status */}
+              {getPaymentStatusDisplay(booking)}
+
+              {/* Card Actions */}
+              <div className="flex items-center gap-2 pt-1">
                 <Button 
-                  variant="outline" 
+                  variant="default"
                   size="sm" 
-                  className="flex-1 text-xs py-1.5"
+                  className="flex-1 h-9 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
                   onClick={() => handleViewDetails(booking)}
                 >
                   View Details
+                  <ChevronRight className="w-3.5 h-3.5 ml-1" />
                 </Button>
-                {['pending', 'accepted'].includes(booking.status) && (
+
+                {/* Rate a completed trip, or show the given rating */}
+                {booking.status === 'completed' && (
+                  booking.rating?.stars ? (
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-center gap-0.5 px-2 h-7" title={`You rated ${booking.rating.stars}/5`}>
+                        {[1, 2, 3, 4, 5].map(n => (
+                          <Star key={n} className={`w-3.5 h-3.5 ${n <= booking.rating.stars ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
+                        ))}
+                      </div>
+                      {booking.rating?.review && (
+                        <p className="text-[10px] text-gray-500 italic max-w-[140px] truncate" title={booking.rating.review}>
+                          "{booking.rating.review}"
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 px-3 text-amber-700 border-amber-200 bg-amber-50 hover:bg-amber-100 text-xs font-semibold rounded-xl"
+                      onClick={() => {
+                        setRatingBooking(booking);
+                        setRatingStars(0);
+                        setRatingReview('');
+                      }}
+                    >
+                      <Star className="w-3.5 h-3.5 mr-1 fill-amber-400 text-amber-400" />
+                      Rate Trip
+                    </Button>
+                  )
+                )}
+
+                {/* Once the driver accepts, only admin can cancel */}
+                {booking.status === 'pending' && (
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex-1 text-red-600 border-red-300 hover:bg-red-50 text-xs py-1.5"
+                    className="h-9 px-3 text-rose-600 border-rose-200 hover:bg-rose-50 text-xs font-medium rounded-xl"
                     onClick={() => {
                       setSelectedBooking(booking);
                       setIsCancelModalOpen(true);
                     }}
                   >
-                    Request Cancellation
-                  </Button>
-                )}
-                {booking.status === 'cancellation_requested' && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex-1 text-orange-600 border-orange-300 bg-orange-50 text-xs py-1.5"
-                    disabled
-                  >
-                    Cancellation Requested
+                    Cancel
                   </Button>
                 )}
               </div>
-            </Card>
+            </div>
           ))
         ) : (
-          <div className="text-center py-6">
-            <List className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground text-sm">No {activeTab} bookings found</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {activeTab === 'upcoming' 
-                ? "You haven't made any upcoming bookings yet." 
-                : "You don't have any past bookings."
-              }
-            </p>
+          /* Application-Grade Empty State */
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm text-center my-6 space-y-4">
+            <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto shadow-inner ring-8 ring-blue-50/50">
+              <Ticket className="w-9 h-9 text-blue-600 stroke-[1.5]" />
+            </div>
+            
+            <div className="space-y-1 max-w-xs mx-auto">
+              <h3 className="text-lg font-bold text-gray-900">
+                {activeTab === 'upcoming' ? "No Upcoming Trips" : "No Past Bookings"}
+              </h3>
+              <p className="text-xs sm:text-sm text-gray-500 leading-relaxed">
+                {activeTab === 'upcoming'
+                  ? "You don't have any scheduled rides right now. Search buses or cars to plan your journey!"
+                  : "Your completed and cancelled trip history will appear here once you take a ride."}
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                onClick={() => navigate('/')}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-md shadow-blue-600/20 active:scale-95 transition-all"
+              >
+                Book a Ride Now
+              </Button>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Booking Details Modal */}
-      <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto p-4 md:p-6">
-          <DialogHeader className="mb-4">
-            <DialogTitle className="flex items-center justify-between text-lg md:text-xl">
-              <span>Booking Details</span>
-            </DialogTitle>
-          </DialogHeader>
-          
-          {selectedBooking && (
-            <div className="space-y-4 md:space-y-6">
-              {/* Route Info */}
-              <div className="bg-blue-50 p-3 md:p-6 rounded-lg">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 mb-2 md:mb-3">
-                  <h3 className="font-semibold text-base md:text-xl break-words leading-tight">
-                    {getPickupAddress(selectedBooking)} → {getDestinationAddress(selectedBooking)}
-                  </h3>
-                  <span className={`px-2 md:px-3 py-1 text-xs md:text-sm rounded-full whitespace-nowrap self-start md:self-auto ${
-                    ['accepted', 'started'].includes(selectedBooking.status)
-                      ? "bg-green-100 text-green-800" 
-                      : selectedBooking.status === 'pending'
-                      ? "bg-yellow-100 text-yellow-800"
-                      : selectedBooking.status === 'completed'
-                      ? "bg-blue-100 text-blue-800"
-                      : selectedBooking.status === 'cancellation_requested'
-                      ? "bg-orange-100 text-orange-800"
-                      : selectedBooking.status === 'cancelled'
-                      ? "bg-red-100 text-red-800"
-                      : "bg-gray-100 text-gray-800"
-                  }`}>
-                    {selectedBooking.status === 'cancellation_requested' 
-                      ? 'Cancellation Requested'
-                      : selectedBooking.status.charAt(0).toUpperCase() + selectedBooking.status.slice(1)
-                    }
+      {/* Booking Details (full page) */}
+      {isDetailModalOpen && selectedBooking && (() => {
+        const b = selectedBooking;
+        const statusStyle = {
+          pending: 'bg-amber-50 text-amber-700 border-amber-200',
+          accepted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          started: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          completed: 'bg-blue-50 text-blue-700 border-blue-200',
+          cancellation_requested: 'bg-orange-50 text-orange-700 border-orange-200',
+          cancelled: 'bg-red-50 text-red-700 border-red-200'
+        }[b.status] || 'bg-gray-50 text-gray-700 border-gray-200';
+        const statusLabel = b.status === 'cancellation_requested'
+          ? 'Cancellation Requested'
+          : b.status.charAt(0).toUpperCase() + b.status.slice(1);
+        const pricing = getBookingPricing(b);
+        const platformFee = pricing.platformFee || 0;
+        const discount = pricing.discount || 0;
+        const fare = (pricing.totalAmount || 0) + discount - platformFee; // totalAmount is after the coupon
+        const payment = b.payment || {};
+        const paidOnline = payment.isPartialPayment
+          ? (payment.partialPaymentDetails?.onlinePaymentStatus === 'completed' ? payment.partialPaymentDetails.onlineAmount : 0)
+          : (payment.status === 'completed' ? (payment.amount || pricing.totalAmount) : 0);
+        const vehicleName = b.vehicle?.pricingReference?.vehicleModel || b.vehicle?.brand || 'Vehicle';
+        const distance = b.tripDetails?.distance;
+
+        return (
+          <div className="fixed inset-0 z-[105] flex flex-col bg-slate-50">
+            {/* Header */}
+            <div className="bg-white border-b border-gray-200 px-2 py-2.5 flex items-center gap-1 shadow-xs">
+              <button
+                onClick={() => setIsDetailModalOpen(false)}
+                className="p-2 rounded-full hover:bg-gray-100 text-gray-700"
+                aria-label="Back"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-gray-900">Booking Details</h2>
+                <p className="text-xs text-gray-500">#{b.bookingNumber}</p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 max-w-2xl mx-auto w-full pb-6">
+              {/* Status */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Status</p>
+                  <span className={`inline-block mt-1 px-2.5 py-1 rounded-full border text-xs font-semibold ${statusStyle}`}>
+                    {statusLabel}
                   </span>
                 </div>
-                <p className="text-sm md:text-base text-muted-foreground">Booking ID: {selectedBooking.bookingNumber}</p>
+                <div className="text-right">
+                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Booked on</p>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">
+                    {b.createdAt ? new Date(b.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                  </p>
+                </div>
               </div>
 
-              {/* Cancellation Request Status - Show prominently for cancellation requested bookings */}
-              {selectedBooking.status === 'cancellation_requested' && selectedBooking.cancellation && (
-                <div className="bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 p-4 md:p-6 rounded-lg">
-                  <h4 className="font-semibold text-orange-800 text-base md:text-lg mb-3 flex items-center">
-                    <Clock className="w-5 h-5 mr-2" />
-                    Cancellation Request Status
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm md:text-base">
-                    <div className="flex items-center justify-between">
-                      <span className="text-orange-700 font-medium">Request Status:</span>
-                      <span className={`px-3 py-1 text-xs rounded-full font-medium ${
-                        selectedBooking.cancellation.requestStatus === 'pending'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : selectedBooking.cancellation.requestStatus === 'approved'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {selectedBooking.cancellation.requestStatus === 'pending' && 'Pending Review'}
-                        {selectedBooking.cancellation.requestStatus === 'approved' && 'Approved'}
-                        {selectedBooking.cancellation.requestStatus === 'rejected' && 'Rejected'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-orange-700 font-medium">Requested On:</span>
-                      <span className="text-orange-800">
-                        {selectedBooking.cancellation.requestedAt ? 
-                          new Date(selectedBooking.cancellation.requestedAt).toLocaleDateString() : 'N/A'
-                        }
-                      </span>
-                    </div>
-                    {selectedBooking.cancellation.requestReason && (
-                      <div className="sm:col-span-2">
-                        <span className="text-orange-700 font-medium">Reason:</span>
-                        <p className="text-orange-800 mt-1 p-2 bg-orange-100 rounded">
-                          {selectedBooking.cancellation.requestReason}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+              {/* Cancellation request */}
+              {b.status === 'cancellation_requested' && b.cancellation && (
+                <div className="bg-orange-50 p-4 rounded-2xl border border-orange-200 text-sm space-y-1.5">
+                  <p className="font-semibold text-orange-800 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4" /> Cancellation request{' '}
+                    {b.cancellation.requestStatus === 'pending' ? 'under review' : b.cancellation.requestStatus}
+                  </p>
+                  {b.cancellation.requestedAt && (
+                    <p className="text-orange-700 text-xs">Requested on {new Date(b.cancellation.requestedAt).toLocaleDateString()}</p>
+                  )}
+                  {b.cancellation.requestReason && (
+                    <p className="text-orange-800 text-xs">Reason: {b.cancellation.requestReason}</p>
+                  )}
                 </div>
               )}
 
-              {/* Refund Status Summary - Show prominently for cancelled bookings */}
-              {selectedBooking.status === 'cancelled' && selectedBooking.cancellation && (
-                <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 p-4 md:p-6 rounded-lg">
-                  <h4 className="font-semibold text-red-800 text-base md:text-lg mb-3 flex items-center">
-                    <RefreshCw className="w-5 h-5 mr-2" />
-                    Refund Status
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm md:text-base">
-                    <div className="flex items-center justify-between">
-                      <span className="text-red-700 font-medium">Refund Amount:</span>
-                      <span className="text-red-800 font-bold text-lg">
-                        ₹{selectedBooking.cancellation.refundAmount || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-red-700 font-medium">Refund Status:</span>
-                      <span className={`px-3 py-1 text-xs rounded-full font-medium ${
-                        selectedBooking.cancellation.refundStatus === 'pending'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : selectedBooking.cancellation.refundStatus === 'initiated'
-                          ? 'bg-blue-100 text-blue-800'
-                          : selectedBooking.cancellation.refundStatus === 'completed'
-                          ? 'bg-green-100 text-green-800'
-                          : selectedBooking.cancellation.refundStatus === 'failed'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {selectedBooking.cancellation.refundStatus === 'pending' && 'Pending'}
-                        {selectedBooking.cancellation.refundStatus === 'initiated' && 'Initiated'}
-                        {selectedBooking.cancellation.refundStatus === 'completed' && 'Completed'}
-                        {selectedBooking.cancellation.refundStatus === 'failed' && 'Failed'}
-                      </span>
-                    </div>
-                    {selectedBooking.cancellation.refundMethod && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-red-700 font-medium">Refund Method:</span>
-                        <span className="text-red-800">{selectedBooking.cancellation.refundMethod}</span>
-                      </div>
-                    )}
-                    {selectedBooking.cancellation.refundCompletedAt && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-red-700 font-medium">Completed On:</span>
-                        <span className="text-red-800">
-                          {new Date(selectedBooking.cancellation.refundCompletedAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+              {/* Refund */}
+              {b.status === 'cancelled' && b.cancellation && (
+                <div className="bg-red-50 p-4 rounded-2xl border border-red-200 text-sm space-y-1.5">
+                  <p className="font-semibold text-red-800 flex items-center gap-1.5">
+                    <RefreshCw className="w-4 h-4" /> Refund {b.cancellation.refundStatus || 'pending'}
+                  </p>
+                  {b.cancellation.refundAmount ? (
+                    <p className="text-red-700 text-xs">Amount: ₹{b.cancellation.refundAmount}</p>
+                  ) : null}
+                  {b.cancellation.refundCompletedAt && (
+                    <p className="text-red-700 text-xs">Completed on {new Date(b.cancellation.refundCompletedAt).toLocaleDateString()}</p>
+                  )}
                 </div>
               )}
 
-              {/* Download Receipt Button */}
-              <div className="flex justify-center">
-                <Button 
-                  onClick={() => downloadReceipt(selectedBooking)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 md:px-6 py-2 md:py-3 text-sm md:text-base w-full md:w-auto"
+              {/* Trip */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs">
+                <div className="flex gap-3">
+                  <div className="flex flex-col items-center pt-1.5 flex-shrink-0">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <span className="w-px flex-1 min-h-6 bg-gray-300 my-1" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div>
+                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Pickup</p>
+                      <p className="text-sm font-semibold text-gray-900">{getPickupAddress(b)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Drop</p>
+                      <p className="text-sm font-semibold text-gray-900">{getDestinationAddress(b)}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                    {formatDate(getBookingDate(b))}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-gray-400" />
+                    {formatTime(getBookingTime(b))}
+                  </span>
+                  {distance ? (
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-gray-400" />
+                      {Number(distance).toFixed(1)} km
+                    </span>
+                  ) : null}
+                  {isRoundTrip(b) && (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">
+                      Round trip{getReturnDate(b) ? ` • back ${formatDate(getReturnDate(b))}` : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Vehicle & driver */}
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-xs divide-y divide-gray-100">
+                <div className="p-4 flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                    <Car className="w-5 h-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-gray-900 truncate">{vehicleName}</p>
+                    <p className="text-xs text-gray-500 capitalize">
+                      {[b.vehicle?.pricingReference?.vehicleType, b.vehicle?.type].filter(Boolean).join(' • ') || 'Vehicle'}
+                    </p>
+                  </div>
+                  {b.vehicle?.registrationNumber && (
+                    <span className="px-2 py-1 rounded-md border border-gray-300 bg-gray-50 text-xs font-mono font-bold text-gray-800">
+                      {b.vehicle.registrationNumber}
+                    </span>
+                  )}
+                </div>
+                <div className="p-4 flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0">
+                    <User className="w-5 h-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Driver</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {[b.driver?.firstName, b.driver?.lastName].filter(Boolean).join(' ') || 'To be assigned'}
+                    </p>
+                  </div>
+                  {b.driver?.phone && (
+                    <a
+                      href={`tel:${b.driver.phone}`}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200"
+                    >
+                      <Phone className="w-3.5 h-3.5" /> Call
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Rating & Review if completed */}
+              {b.status === 'completed' && (
+                b.rating?.stars ? (
+                  <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                        <span>Your Trip Rating & Review</span>
+                      </p>
+                      <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                        ★ {b.rating.stars} / 5
+                      </span>
+                    </div>
+                    {b.rating.review && (
+                      <p className="text-xs text-gray-700 italic bg-slate-50 p-3 rounded-xl border border-gray-100">
+                        "{b.rating.review}"
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-3.5 rounded-2xl border border-amber-200 shadow-xs flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <Star className="w-4 h-4 fill-amber-400 text-amber-400 shrink-0" />
+                        <span>How was your trip?</span>
+                      </p>
+                      <p className="text-[11px] text-gray-600 truncate">Share rating and feedback for the driver</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold shrink-0 h-8 px-3"
+                      onClick={() => {
+                        setRatingBooking(b);
+                        setRatingStars(0);
+                        setRatingReview('');
+                      }}
+                    >
+                      <Star className="w-3.5 h-3.5 mr-1 fill-white" />
+                      Rate Trip
+                    </Button>
+                  </div>
+                )
+              )}
+
+              {/* Payment */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs space-y-2.5 text-sm">
+                <h3 className="font-bold text-gray-900">Payment Summary</h3>
+                <div className="flex justify-between gap-3 text-gray-600">
+                  <span>
+                    {distance && pricing.ratePerKm ? `Trip fare (${Number(distance).toFixed(1)} km × 2 × ₹${pricing.ratePerKm})` : 'Trip fare'}
+                  </span>
+                  <span className="text-gray-900 font-medium">₹{fare.toLocaleString()}</span>
+                </div>
+                {platformFee > 0 && (
+                  <div className="flex justify-between gap-3 text-gray-600">
+                    <span>Platform fee</span>
+                    <span className="text-gray-900 font-medium">₹{platformFee.toLocaleString()}</span>
+                  </div>
+                )}
+                {discount > 0 && (
+                  <div className="flex justify-between gap-3 text-emerald-700">
+                    <span>Coupon{pricing.couponCode ? ` (${pricing.couponCode})` : ''}</span>
+                    <span className="font-medium">−₹{discount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2.5 border-t border-gray-100">
+                  <span className="font-bold text-gray-900">Total</span>
+                  <span className="font-bold text-gray-900 text-base">₹{(pricing.totalAmount || 0).toLocaleString()}</span>
+                </div>
+                {paidOnline > 0 && (
+                  <div className="flex justify-between rounded-xl bg-emerald-50 px-3 py-2">
+                    <span className="text-emerald-700 font-medium">Paid online</span>
+                    <span className="text-emerald-700 font-bold">₹{paidOnline.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom action */}
+            <div className="bg-white px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
+              <div className="max-w-2xl mx-auto">
+                <Button
+                  onClick={() => downloadReceipt(b)}
+                  className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm"
                   disabled={isDownloading}
                 >
-                  {isDownloading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4 mr-2" />
-                  )}
+                  {isDownloading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   {isDownloading ? 'Downloading...' : 'Download Receipt'}
                 </Button>
               </div>
+            </div>
+          </div>
+        );
+      })()}
 
-              {/* Journey Details */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-foreground text-base md:text-lg">Journey Details</h4>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm md:text-base">
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground flex-shrink-0" />
-                    <span className="break-words">
-                      {formatDate(getBookingDate(selectedBooking))}
-                      {isRoundTrip(selectedBooking) && getReturnDate(selectedBooking) && (
-                        <span className="text-blue-600 font-medium block mt-1">
-                          Return: {formatDate(getReturnDate(selectedBooking))}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground flex-shrink-0" />
-                    <span className="break-words">
-                      {formatTime(getBookingTime(selectedBooking))}
-                    </span>
-                  </div>
-                  {isRoundTrip(selectedBooking) && (
-                    <div className="flex items-center space-x-2 sm:col-span-2">
-                      <div className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground flex items-center justify-center">
-                        <span className="text-xs font-bold text-blue-600">↔</span>
-                      </div>
-                      <span className="text-blue-600 font-medium">
-                        Round Trip
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center space-x-2">
-                    <Receipt className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground flex-shrink-0" />
-                    <span className="break-words">₹{getBookingPricing(selectedBooking).totalAmount || 'N/A'}</span>
-                  </div>
+      {/* Rate Trip Modal */}
+      <Dialog open={!!ratingBooking} onOpenChange={(open) => {
+        if (!open) {
+          setRatingBooking(null);
+          setRatingStars(0);
+          setRatingReview('');
+        }
+      }}>
+        <DialogContent className="max-w-sm w-[92vw] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-center font-bold">Rate your trip</DialogTitle>
+          </DialogHeader>
+          {ratingBooking && (
+            <div className="space-y-4">
+              <p className="text-sm text-center text-gray-600">
+                How was your ride with{' '}
+                <span className="font-semibold text-gray-900">
+                  {[ratingBooking.driver?.firstName, ratingBooking.driver?.lastName].filter(Boolean).join(' ') || 'your driver'}
+                </span>?
+              </p>
+              <div className="flex justify-center gap-2">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setRatingStars(n)}
+                    className="p-1 transition-transform active:scale-90 cursor-pointer"
+                    aria-label={`${n} star${n > 1 ? 's' : ''}`}
+                  >
+                    <Star className={`w-9 h-9 ${n <= ratingStars ? 'fill-amber-400 text-amber-400' : 'text-gray-300 hover:text-amber-200'}`} />
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-center text-gray-500 font-semibold h-4">
+                {['', 'Poor', 'Below average', 'Good', 'Very good', 'Excellent'][ratingStars]}
+              </p>
+
+              {/* Review Input Field */}
+              <div className="space-y-1.5 text-left pt-1">
+                <label className="text-xs font-semibold text-gray-700">
+                  Write a review (Optional)
+                </label>
+                <Textarea
+                  value={ratingReview}
+                  onChange={(e) => setRatingReview(e.target.value)}
+                  placeholder="Share details about vehicle cleanliness, driver behavior, driving, or punctuality..."
+                  maxLength={500}
+                  rows={3}
+                  className="w-full text-xs p-3 rounded-xl border border-gray-200 bg-slate-50 focus:bg-white resize-none text-gray-900 placeholder:text-gray-400"
+                />
+                <div className="text-[10px] text-gray-400 text-right">
+                  {ratingReview.length}/500
                 </div>
               </div>
 
-              {/* Round Trip Information - Show prominently for round trips */}
-              {isRoundTrip(selectedBooking) && (
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-4 md:p-6 rounded-lg">
-                  <h4 className="font-semibold text-blue-800 text-base md:text-lg mb-3 flex items-center">
-                    <div className="w-5 h-5 mr-2 flex items-center justify-center">
-                      <span className="text-sm font-bold text-blue-600">↔</span>
-                    </div>
-                    Round Trip Details
-                  </h4>
-                  
-                  {/* Visual Timeline */}
-                  <div className="mb-4 p-3 bg-white rounded-lg border border-blue-200">
-                    <div className="flex items-center justify-between">
-                      <div className="text-center">
-                        <div className="w-3 h-3 bg-blue-500 rounded-full mb-1"></div>
-                        <div className="text-xs text-blue-700 font-medium">Departure</div>
-                        <div className="text-sm text-blue-800 font-bold">
-                          {formatDate(getBookingDate(selectedBooking))}
-                        </div>
-                      </div>
-                      <div className="flex-1 h-0.5 bg-blue-300 mx-2 relative">
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-indigo-400"></div>
-                      </div>
-                      <div className="text-center">
-                        <div className="w-3 h-3 bg-indigo-500 rounded-full mb-1"></div>
-                        <div className="text-xs text-indigo-700 font-medium">Return</div>
-                        <div className="text-sm text-indigo-800 font-bold">
-                          {getReturnDate(selectedBooking) ? formatDate(getReturnDate(selectedBooking)) : 'Return Date'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm md:text-base">
-                    <div className="flex items-center justify-between">
-                      <span className="text-blue-700 font-medium">Departure Date:</span>
-                      <span className="text-blue-800 font-medium">
-                        {formatDate(getBookingDate(selectedBooking))}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-blue-700 font-medium">Return Date:</span>
-                      <span className="text-blue-800 font-medium">
-                        {getReturnDate(selectedBooking) ? formatDate(getReturnDate(selectedBooking)) : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-blue-700 font-medium">Trip Type:</span>
-                      <span className="text-blue-800 font-medium capitalize">
-                        {getTripType(selectedBooking) === 'return' ? 'Round Trip' : 'One Way'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-blue-700 font-medium">Duration:</span>
-                      <span className="text-blue-800 font-medium">
-                        {getReturnDate(selectedBooking) && getBookingDate(selectedBooking) ? 
-                          (() => {
-                            const start = new Date(getBookingDate(selectedBooking));
-                            const end = new Date(getReturnDate(selectedBooking));
-                            const diffTime = Math.abs(end.getTime() - start.getTime());
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
-                          })() : 'N/A'
-                        }
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Additional Trip Info */}
-                  {getReturnDate(selectedBooking) && getBookingDate(selectedBooking) && (
-                    <div className="mt-4 p-3 bg-blue-100 rounded-lg">
-                      <div className="text-center">
-                        <div className="text-sm text-blue-800 font-medium mb-1">Trip Summary</div>
-                        <div className="text-lg text-blue-900 font-bold">
-                          {(() => {
-                            const start = new Date(getBookingDate(selectedBooking));
-                            const end = new Date(getReturnDate(selectedBooking));
-                            const diffTime = Math.abs(end.getTime() - start.getTime());
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            return `${diffDays} Day${diffDays > 1 ? 's' : ''} Round Trip`;
-                          })()}
-                        </div>
-                        <div className="text-xs text-blue-700 mt-1">
-                          From {formatDate(getBookingDate(selectedBooking))} to {formatDate(getReturnDate(selectedBooking))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Show when return date is not available */}
-                  {!getReturnDate(selectedBooking) && (
-                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <div className="text-center">
-                        <div className="text-sm text-yellow-800 font-medium mb-1">Round Trip Booking</div>
-                        <div className="text-xs text-yellow-700">
-                          This is a round trip booking. Return date details will be updated by the driver.
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Vehicle Details */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-foreground text-base md:text-lg">Vehicle Details</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm md:text-base">
-                  <div className="break-words"><strong>Type:</strong> {selectedBooking.vehicle?.type || 'N/A'}</div>
-                  <div className="break-words"><strong>Brand:</strong> {selectedBooking.vehicle?.brand || 'N/A'}</div>
-                  <div className="sm:col-span-2 break-words"><strong>Registration:</strong> {selectedBooking.vehicle?.registrationNumber || 'N/A'}</div>
-                </div>
-              </div>
-
-              {/* Driver Details */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-foreground text-base md:text-lg">Driver Details</h4>
-                <div className="space-y-2 text-sm md:text-base">
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground flex-shrink-0" />
-                    <span className="break-words">
-                      {selectedBooking.driver?.firstName} {selectedBooking.driver?.lastName}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Phone className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground flex-shrink-0" />
-                    <span className="break-words">{selectedBooking.driver?.phone || 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-muted-foreground">Rating:</span>
-                    <span className="break-words">{selectedBooking.driver?.rating || 'N/A'}/5</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Trip Details */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-foreground text-base md:text-lg">Trip Details</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm md:text-base">
-                  <div className="break-words"><strong>Distance:</strong> {isRoundTrip(selectedBooking) ? (selectedBooking.tripDetails?.distance * 2).toFixed(1) : selectedBooking.tripDetails?.distance || 'N/A'} km</div>
-                  <div className="break-words"><strong>Duration:</strong> {selectedBooking.tripDetails?.duration || 'N/A'} min</div>
-                </div>
-              </div>
-
-              {/* Pricing Breakdown */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-foreground text-base md:text-lg">Pricing Breakdown</h4>
-                <div className="space-y-2 text-sm md:text-base">
-                  <div className="flex justify-between">
-                    <span>Distance:</span>
-                    <span className="break-words">{selectedBooking.tripDetails?.distance || 'N/A'} km</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Rate per km:</span>
-                    <span className="break-words">₹{getBookingPricing(selectedBooking).ratePerKm || 'N/A'} /km</span>
-                  </div>
-                  <div className="flex justify-between font-semibold border-t pt-2">
-                    <span>Total Amount:</span>
-                    <span className="break-words">₹{getBookingPricing(selectedBooking).totalAmount || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cancellation and Refund Information - Hidden */}
-              {/* {selectedBooking.cancellation && (
-                <div className="space-y-3">
-                  <h4 className="font-medium text-foreground text-base md:text-lg">Cancellation & Refund</h4>
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                    {selectedBooking.cancellation.requestStatus && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Request Status:</span>
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          selectedBooking.cancellation.requestStatus === 'pending'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : selectedBooking.cancellation.requestStatus === 'approved'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {selectedBooking.cancellation.requestStatus.charAt(0).toUpperCase() + 
-                           selectedBooking.cancellation.requestStatus.slice(1)}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {selectedBooking.cancellation.requestReason && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Cancellation Reason:</span>
-                        <span className="text-sm text-gray-600 break-words max-w-xs text-right">
-                          {selectedBooking.cancellation.requestReason}
-                        </span>
-                      </div>
-                    )}
-
-                    {selectedBooking.cancellation.refundAmount && selectedBooking.cancellation.refundAmount > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Refund Amount:</span>
-                        <span className="text-sm font-semibold text-green-600">
-                          ₹{selectedBooking.cancellation.refundAmount}
-                        </span>
-                      </div>
-                    )}
-
-                    {selectedBooking.cancellation.refundStatus && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Refund Status:</span>
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          selectedBooking.cancellation.refundStatus === 'pending'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : selectedBooking.cancellation.refundStatus === 'initiated'
-                            ? 'bg-blue-100 text-blue-800'
-                            : selectedBooking.cancellation.refundStatus === 'completed'
-                            ? 'bg-green-100 text-green-800'
-                            : selectedBooking.cancellation.refundStatus === 'failed'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {selectedBooking.cancellation.refundStatus === 'pending' && 'Pending'}
-                          {selectedBooking.cancellation.refundStatus === 'initiated' && 'Initiated'}
-                          {selectedBooking.cancellation.refundStatus === 'completed' && 'Completed'}
-                          {selectedBooking.cancellation.refundStatus === 'failed' && 'Failed'}
-                        </span>
-                      </div>
-                    )}
-
-                    {selectedBooking.cancellation.refundCompletedAt && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Refund Completed:</span>
-                        <span className="text-sm text-gray-600">
-                          {new Date(selectedBooking.cancellation.refundCompletedAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    )}
-
-                    {selectedBooking.cancellation.approvedReason && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Admin Notes:</span>
-                        <span className="text-sm text-gray-600 break-words max-w-xs text-right">
-                          {selectedBooking.cancellation.approvedReason}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )} */}
+              <Button
+                onClick={submitRating}
+                disabled={ratingStars < 1 || isSubmittingRating}
+                className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs"
+              >
+                {isSubmittingRating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Submit Rating & Review
+              </Button>
             </div>
           )}
         </DialogContent>

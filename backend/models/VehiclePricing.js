@@ -2,21 +2,21 @@ const mongoose = require('mongoose');
 const mongoosePaginate = require('mongoose-paginate-v2');
 
 const VehiclePricingSchema = new mongoose.Schema({
-  // Vehicle Category (auto, car, bus)
+  // Vehicle Category (car, bus)
   category: {
     type: String,
-    enum: ['auto', 'car', 'bus'],
+    enum: ['car', 'bus', 'auto'],
     required: [true, 'Vehicle category is required']
   },
   
-  // Vehicle Type (e.g., Auto, Sedan, Hatchback, SUV for cars)
+  // Vehicle Type (e.g., Sedan, Hatchback, SUV for cars)
   vehicleType: {
     type: String,
     required: [true, 'Vehicle type is required'],
     trim: true
   },
   
-  // Vehicle Model (e.g., Standard Auto, Honda City, Swift Dzire for cars)
+  // Vehicle Model (e.g., Honda City, Swift Dzire for cars)
   vehicleModel: {
     type: String,
     required: [true, 'Vehicle model is required'],
@@ -30,49 +30,41 @@ const VehiclePricingSchema = new mongoose.Schema({
     required: [true, 'Trip type is required']
   },
   
-  // Auto price (required for auto category only)
-  autoPrice: {
-    type: Number,
-    required: function() { return this.category === 'auto'; },
-    min: [0, 'Auto price cannot be negative'],
-    default: 0
-  },
-  
-  // Distance-based pricing (required for car and bus, not for auto)
+  // Distance-based pricing (for car and bus)
   distancePricing: {
     '50km': {
       type: Number,
-      required: function() { return this.category !== 'auto'; },
+      required: true,
       min: [0, 'Price cannot be negative'],
       default: 0
     },
     '100km': {
       type: Number,
-      required: function() { return this.category !== 'auto'; },
+      required: true,
       min: [0, 'Price cannot be negative'],
       default: 0
     },
     '150km': {
       type: Number,
-      required: function() { return this.category !== 'auto'; },
+      required: true,
       min: [0, 'Price cannot be negative'],
       default: 0
     },
     '200km': {
       type: Number,
-      required: function() { return this.category !== 'auto'; },
+      required: true,
       min: [0, 'Price cannot be negative'],
       default: 0
     },
     '250km': {
       type: Number,
-      required: function() { return this.category !== 'auto'; },
+      required: true,
       min: [0, 'Price cannot be negative'],
       default: 0
     },
     '300km': {
       type: Number,
-      required: function() { return this.category !== 'auto'; },
+      required: true,
       min: [0, 'Price cannot be negative'],
       default: 0
     }
@@ -140,42 +132,56 @@ VehiclePricingSchema.index({ isActive: 1 });
 
 // Method to calculate fare based on distance
 VehiclePricingSchema.methods.calculateFare = function(distance) {
-  let totalFare = 0;
+  // For car and bus, calculate distance-based pricing
+  let rate = this.distancePricing['300km']; // Default to highest distance rate
   
-  // For auto, use fixed auto price
-  if (this.category === 'auto') {
-    totalFare = this.autoPrice;
+  if (distance <= 50) {
+    rate = this.distancePricing['50km'];
+  } else if (distance <= 100) {
+    rate = this.distancePricing['100km'];
+  } else if (distance <= 150) {
+    rate = this.distancePricing['150km'];
+  } else if (distance <= 200) {
+    rate = this.distancePricing['200km'];
+  } else if (distance <= 250) {
+    rate = this.distancePricing['250km'];
   } else {
-    // For car and bus, calculate distance-based pricing
-    let rate = this.distancePricing['300km']; // Default to highest distance rate
-    
-    if (distance <= 50) {
-      rate = this.distancePricing['50km'];
-    } else if (distance <= 100) {
-      rate = this.distancePricing['100km'];
-    } else if (distance <= 150) {
-      rate = this.distancePricing['150km'];
-    } else if (distance <= 200) {
-      rate = this.distancePricing['200km'];
-    } else if (distance <= 250) {
-      rate = this.distancePricing['250km'];
-    } else {
-      rate = this.distancePricing['300km'];
-    }
-    
-    totalFare = rate * distance;
+    rate = this.distancePricing['300km'];
   }
+  
+  // Fare is 2x distance (aane aur jane dono ka / round trip)
+  const totalFare = rate * distance * 2;
   
   // Round to whole rupees (no decimal places)
   return Math.round(totalFare);
 };
 
 // Static method to get pricing by vehicle details
-VehiclePricingSchema.statics.getPricing = function(category, vehicleType, vehicleModel, tripType) {
+VehiclePricingSchema.statics.getPricing = async function(category, vehicleType, vehicleModel, tripType) {
+  const safeRegex = (str) => new RegExp(`^${(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  
+  // 1. Try exact match (case-insensitive)
+  let pricing = await this.findOne({
+    category: safeRegex(category),
+    vehicleType: safeRegex(vehicleType),
+    vehicleModel: safeRegex(vehicleModel),
+    tripType,
+    isActive: true
+  });
+  if (pricing) return pricing;
+
+  // 2. Try match vehicleType and category (fallback for custom-typed models)
+  pricing = await this.findOne({
+    category: safeRegex(category),
+    vehicleType: safeRegex(vehicleType),
+    tripType,
+    isActive: true
+  });
+  if (pricing) return pricing;
+
+  // 3. Fallback to default pricing for category
   return this.findOne({
-    category,
-    vehicleType,
-    vehicleModel,
+    category: safeRegex(category),
     tripType,
     isActive: true
   });

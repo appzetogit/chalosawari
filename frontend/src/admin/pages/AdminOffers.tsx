@@ -15,10 +15,47 @@ import {
   Edit, 
   Trash2, 
   Tag, 
-  Image as ImageIcon
+  Car,
+  Bus
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { offerApi, type Offer, type OfferStats } from "@/services/offerApi";
+
+const OfferVehicleIcon = ({ vehicleType, isMobile = false }: { vehicleType?: string; isMobile?: boolean }) => {
+  const type = vehicleType?.toLowerCase();
+
+  if (type === 'car') {
+    return (
+      <div className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-50 p-4 ${isMobile ? 'border-b border-blue-100' : 'border-r border-blue-100'}`}>
+        <div className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-blue-100 flex items-center justify-center text-blue-600 transition-transform group-hover:scale-105">
+          <Car className="h-7 w-7 text-blue-600" />
+        </div>
+        <span className="text-xs font-bold text-blue-700 mt-2 tracking-wider uppercase">Car Offer</span>
+      </div>
+    );
+  }
+
+  if (type === 'bus') {
+    return (
+      <div className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100/70 p-4 ${isMobile ? 'border-b border-amber-100' : 'border-r border-amber-100'}`}>
+        <div className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-amber-100 flex items-center justify-center text-amber-600 transition-transform group-hover:scale-105">
+          <Bus className="h-7 w-7 text-orange-600" />
+        </div>
+        <span className="text-xs font-bold text-amber-700 mt-2 tracking-wider uppercase">Bus Offer</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-teal-50 to-green-50 p-4 ${isMobile ? 'border-b border-emerald-100' : 'border-r border-emerald-100'}`}>
+      <div className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-emerald-100 flex items-center justify-center text-emerald-600 gap-1.5 transition-transform group-hover:scale-105">
+        <Car className="h-5 w-5 text-emerald-600" />
+        <Bus className="h-5 w-5 text-emerald-600" />
+      </div>
+      <span className="text-xs font-bold text-emerald-700 mt-2 tracking-wider uppercase">All Bookings</span>
+    </div>
+  );
+};
 
 
 
@@ -38,11 +75,18 @@ const AdminOffers = () => {
   });
 
   // Form states
-  const [offerForm, setOfferForm] = useState({
+  const emptyForm = {
     title: "",
-    image: null as File | null
-  });
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+    description: "",
+    code: "",
+    discountType: "percent" as 'percent' | 'flat',
+    discountValue: "",
+    maxDiscount: "",
+    minBookingAmount: "",
+    vehicleType: "all" as 'all' | 'car' | 'bus',
+    validTill: ""
+  };
+  const [offerForm, setOfferForm] = useState(emptyForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -94,27 +138,40 @@ const AdminOffers = () => {
       return;
     }
 
-    if (!editingOffer && !offerForm.image) {
-      toast({
-        title: "Error",
-        description: "Please select an image for the offer.",
-        variant: "destructive"
-      });
+    if (!/^[A-Za-z0-9]{3,20}$/.test(offerForm.code.trim())) {
+      toast({ title: "Error", description: "Coupon code must be 3-20 letters or digits.", variant: "destructive" });
       return;
     }
+
+    if (!(Number(offerForm.discountValue) > 0) || (offerForm.discountType === 'percent' && Number(offerForm.discountValue) > 100)) {
+      toast({ title: "Error", description: "Enter a valid discount (percent must be 1-100).", variant: "destructive" });
+      return;
+    }
+
+    const fields = {
+      title: offerForm.title.trim(),
+      description: offerForm.description.trim(),
+      code: offerForm.code.trim().toUpperCase(),
+      discountType: offerForm.discountType,
+      discountValue: Number(offerForm.discountValue),
+      maxDiscount: Number(offerForm.maxDiscount) || 0,
+      minBookingAmount: Number(offerForm.minBookingAmount) || 0,
+      vehicleType: offerForm.vehicleType,
+      validTill: offerForm.validTill
+    };
 
     setIsSubmitting(true);
     try {
       if (editingOffer) {
         // Update existing offer
-        await offerApi.updateOffer(editingOffer._id, offerForm.title, offerForm.image || undefined);
+        await offerApi.updateOffer(editingOffer._id, fields);
         toast({
           title: "Success",
           description: "Offer has been updated successfully.",
         });
       } else {
         // Create new offer
-        await offerApi.createOffer(offerForm.title, offerForm.image!);
+        await offerApi.createOffer(fields);
         toast({
           title: "Success",
           description: "New offer has been created successfully.",
@@ -138,11 +195,7 @@ const AdminOffers = () => {
   };
 
   const resetOfferForm = () => {
-    setOfferForm({
-      title: "",
-      image: null
-    });
-    setImagePreview(null);
+    setOfferForm(emptyForm);
     setEditingOffer(null);
   };
 
@@ -150,9 +203,15 @@ const AdminOffers = () => {
     setEditingOffer(offer);
     setOfferForm({
       title: offer.title,
-      image: null // Don't pre-fill image when editing
+      description: offer.description || "",
+      code: offer.code || "",
+      discountType: offer.discountType || "percent",
+      discountValue: offer.discountValue ? String(offer.discountValue) : "",
+      maxDiscount: offer.maxDiscount ? String(offer.maxDiscount) : "",
+      minBookingAmount: offer.minBookingAmount ? String(offer.minBookingAmount) : "",
+      vehicleType: offer.vehicleType || "all",
+      validTill: offer.validTill ? offer.validTill.slice(0, 10) : ""
     });
-    setImagePreview(offer.image); // Show current image preview
     setIsOfferDialogOpen(true);
   };
 
@@ -260,7 +319,7 @@ const AdminOffers = () => {
                   Add Offer
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
                     {editingOffer ? "Edit Offer" : "Create New Offer"}
@@ -273,105 +332,115 @@ const AdminOffers = () => {
                       id="title"
                       value={offerForm.title}
                       onChange={(e) => setOfferForm({...offerForm, title: e.target.value})}
-                      placeholder="Enter offer title"
+                      placeholder="e.g. Flat 10% OFF"
                       required
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="image">Offer Image</Label>
-                    
-                    {/* Image Preview */}
-                    {(imagePreview || offerForm.image) && (
-                      <div className="relative">
-                        <img
-                          src={offerForm.image ? URL.createObjectURL(offerForm.image) : imagePreview}
-                          alt="Preview"
-                          className="w-full h-32 object-cover rounded-md border border-gray-200"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="absolute top-2 right-2 bg-white/80 hover:bg-white"
-                          onClick={() => {
-                            setOfferForm({...offerForm, image: null});
-                            setImagePreview(null);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                    
-                    {/* File Input */}
-                    <div className="relative">
-                      <Input
-                        id="image"
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setOfferForm({...offerForm, image: file});
-                            setImagePreview(null); // Clear old preview when new file is selected
-                          }
-                        }}
-                        className="cursor-pointer"
-                      />
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <ImageIcon className="h-4 w-4 text-gray-400" />
-                      </div>
-                    </div>
-                    
-                    {/* Drag & Drop Area */}
-                    <div 
-                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.add('border-primary/50', 'bg-primary/5');
-                      }}
-                      onDragLeave={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.remove('border-primary/50', 'bg-primary/5');
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.remove('border-primary/50', 'bg-primary/5');
-                        const files = e.dataTransfer.files;
-                        if (files.length > 0) {
-                          const file = files[0];
-                          if (file.type.startsWith('image/')) {
-                            setOfferForm({...offerForm, image: file});
-                            setImagePreview(null);
-                          } else {
-                            toast({
-                              title: "Invalid file type",
-                              description: "Please select an image file.",
-                              variant: "destructive"
-                            });
-                          }
-                        }
-                      }}
-                      onClick={() => document.getElementById('image')?.click()}
-                    >
-                      <ImageIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600">
-                        <span className="font-medium text-primary">Click to upload</span> or drag and drop
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">PNG, JPG, WebP up to 5MB</p>
-                    </div>
-                    
-                    {editingOffer && (
-                      <p className="text-sm text-muted-foreground">
-                        Leave empty to keep the current image
-                      </p>
-                    )}
-                    
-                    <p className="text-xs text-muted-foreground">
-                      Supported formats: JPG, PNG, WebP (Max: 5MB)
-                    </p>
+                    <Label htmlFor="description">Short Description</Label>
+                    <Input
+                      id="description"
+                      value={offerForm.description}
+                      onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })}
+                      placeholder="e.g. On Bus Bookings"
+                    />
                   </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="code">Coupon Code *</Label>
+                      <Input
+                        id="code"
+                        value={offerForm.code}
+                        onChange={(e) => setOfferForm({ ...offerForm, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                        placeholder="e.g. BUS10"
+                        maxLength={20}
+                        className="font-mono uppercase"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Applies To</Label>
+                      <select
+                        value={offerForm.vehicleType}
+                        onChange={(e) => setOfferForm({ ...offerForm, vehicleType: e.target.value as 'all' | 'car' | 'bus' })}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="all">All bookings</option>
+                        <option value="car">Car only</option>
+                        <option value="bus">Bus only</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Discount Type</Label>
+                      <select
+                        value={offerForm.discountType}
+                        onChange={(e) => setOfferForm({ ...offerForm, discountType: e.target.value as 'percent' | 'flat' })}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="percent">Percent (%)</option>
+                        <option value="flat">Flat (₹)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="discountValue">Discount {offerForm.discountType === 'percent' ? '(%)' : '(₹)'} *</Label>
+                      <Input
+                        id="discountValue"
+                        type="number"
+                        min={1}
+                        max={offerForm.discountType === 'percent' ? 100 : undefined}
+                        value={offerForm.discountValue}
+                        onChange={(e) => setOfferForm({ ...offerForm, discountValue: e.target.value })}
+                        placeholder={offerForm.discountType === 'percent' ? 'e.g. 10' : 'e.g. 200'}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {offerForm.discountType === 'percent' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="maxDiscount">Max Discount (₹)</Label>
+                        <Input
+                          id="maxDiscount"
+                          type="number"
+                          min={0}
+                          value={offerForm.maxDiscount}
+                          onChange={(e) => setOfferForm({ ...offerForm, maxDiscount: e.target.value })}
+                          placeholder="No limit"
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="minBookingAmount">Min Booking (₹)</Label>
+                      <Input
+                        id="minBookingAmount"
+                        type="number"
+                        min={0}
+                        value={offerForm.minBookingAmount}
+                        onChange={(e) => setOfferForm({ ...offerForm, minBookingAmount: e.target.value })}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="validTill">Valid Till</Label>
+                      <Input
+                        id="validTill"
+                        type="date"
+                        value={offerForm.validTill}
+                        onChange={(e) => setOfferForm({ ...offerForm, validTill: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The discount is taken from the platform's online share; the driver's cash amount does not change.
+                  </p>
+
+
 
                   <div className="flex justify-end gap-2">
                     <Button 
@@ -401,22 +470,12 @@ const AdminOffers = () => {
           {/* Offers List */}
           <div className="grid gap-4 md:gap-6">
             {offers.map((offer) => (
-              <Card key={offer._id} className="overflow-hidden hover:shadow-lg transition-shadow">
+              <Card key={offer._id} className="group overflow-hidden hover:shadow-lg transition-shadow">
                 {/* Mobile Layout */}
                 <div className="md:hidden">
-                  {/* Image Section - Mobile */}
-                  <div className="w-full h-48 bg-gray-100">
-                    {offer.image ? (
-                      <img 
-                        src={offer.image} 
-                        alt={offer.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-                        <Tag className="h-12 w-12 text-gray-400" />
-                      </div>
-                    )}
+                  {/* Vehicle Icon Section - Mobile */}
+                  <div className="w-full h-36">
+                    <OfferVehicleIcon vehicleType={offer.vehicleType} isMobile={true} />
                   </div>
                   
                   {/* Content Section - Mobile */}
@@ -428,7 +487,17 @@ const AdminOffers = () => {
                         </div>
                         
                         <div className="text-sm text-gray-600">
-                          <p>Created: {new Date(offer.createdAt).toLocaleDateString()}</p>
+                          {offer.code ? (
+                            <p className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-bold text-gray-900 bg-gray-100 border border-dashed border-gray-300 rounded px-2 py-0.5">{offer.code}</span>
+                              <span>{offer.discountType === 'flat' ? '₹' + offer.discountValue + ' off' : offer.discountValue + '% off' + (offer.maxDiscount ? ' (max ₹' + offer.maxDiscount + ')' : '')}</span>
+                              <span className="capitalize">• {offer.vehicleType === 'all' ? 'All bookings' : offer.vehicleType}</span>
+                              <span>• Used {offer.usedCount || 0}x</span>
+                            </p>
+                          ) : (
+                            <p className="text-amber-600">No coupon code yet — edit to add one</p>
+                          )}
+                          <p>{offer.validTill ? 'Valid till ' + new Date(offer.validTill).toLocaleDateString() : 'No expiry'}</p>
                         </div>
                       </div>
                     </div>
@@ -458,20 +527,10 @@ const AdminOffers = () => {
                 </div>
                 
                 {/* Desktop Layout */}
-                <div className="hidden md:flex">
-                  {/* Image Section - Desktop */}
-                  <div className="w-48 h-32 bg-gray-100 flex-shrink-0">
-                    {offer.image ? (
-                      <img 
-                        src={offer.image} 
-                        alt={offer.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-                        <Tag className="h-8 w-8 text-gray-400" />
-                      </div>
-                    )}
+                <div className="hidden md:flex items-stretch">
+                  {/* Vehicle Icon Section - Desktop */}
+                  <div className="w-48 self-stretch flex-shrink-0 flex">
+                    <OfferVehicleIcon vehicleType={offer.vehicleType} isMobile={false} />
                   </div>
                   
                   {/* Content Section - Desktop */}
@@ -483,7 +542,17 @@ const AdminOffers = () => {
                         </div>
                         
                         <div className="text-sm text-gray-600">
-                          <p>Created: {new Date(offer.createdAt).toLocaleDateString()}</p>
+                          {offer.code ? (
+                            <p className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-bold text-gray-900 bg-gray-100 border border-dashed border-gray-300 rounded px-2 py-0.5">{offer.code}</span>
+                              <span>{offer.discountType === 'flat' ? '₹' + offer.discountValue + ' off' : offer.discountValue + '% off' + (offer.maxDiscount ? ' (max ₹' + offer.maxDiscount + ')' : '')}</span>
+                              <span className="capitalize">• {offer.vehicleType === 'all' ? 'All bookings' : offer.vehicleType}</span>
+                              <span>• Used {offer.usedCount || 0}x</span>
+                            </p>
+                          ) : (
+                            <p className="text-amber-600">No coupon code yet — edit to add one</p>
+                          )}
+                          <p>{offer.validTill ? 'Valid till ' + new Date(offer.validTill).toLocaleDateString() : 'No expiry'}</p>
                         </div>
                       </div>
                       

@@ -37,10 +37,11 @@ interface UserAuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (phone: string, otp: string) => Promise<void>;
-  register: (userData: any) => Promise<void>;
+  login: (phone: string, otp: string, userData?: any) => Promise<any>;
+  register: (userData: any) => Promise<any>;
   logout: () => void;
   updateProfile: (profileData: Partial<User>) => Promise<void>;
+  updateAvatar: (file: File) => Promise<string>;
   refreshUser: () => Promise<void>;
 }
 
@@ -96,52 +97,47 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
     checkAuthStatus();
   }, []);
 
-  const login = async (phone: string, otp: string) => {
+  const login = async (phone: string, otp: string, userData?: any) => {
     try {
       setIsLoading(true);
       // Remove country code if present
       const phoneNumber = phone.replace(/[^0-9]/g, '');
       
-      console.log('Attempting login with:', { phone: phoneNumber, otp });
+      console.log('Attempting unified login with:', { phone: phoneNumber, otp });
       
-      const response = await apiService.verifyOTP(phoneNumber, otp, 'login');
+      const response = await apiService.verifyOTP(phoneNumber, otp, 'auth', userData);
       
-      console.log('Login response:', response);
+      console.log('Login/verify response:', response);
       
       if (response.success && response.token) {
         console.log('Login successful, setting token and user');
         // Set token first
         apiService.setAuthToken(response.token);
         
-        // Test token storage
-        const storedToken = apiService.getAuthToken();
-        console.log('Stored token test:', storedToken ? 'Token found' : 'No token found');
-        
         // Fetch complete user profile data
         try {
           const profileResponse = await apiService.getUserProfile();
           if (profileResponse.success) {
-            const userData = profileResponse.data?.user || profileResponse.data;
-            setUser(userData);
+            const profileData = profileResponse.data?.user || profileResponse.data;
+            setUser(profileData);
           } else {
-            // Fallback to basic user data from login response
             setUser(response.user);
           }
         } catch (profileError) {
           console.warn('Failed to fetch complete profile, using basic user data:', profileError);
-          // Fallback to basic user data from login response
           setUser(response.user);
         }
         
-        // Redirect to home page after successful login
-        window.location.href = '/';
+        return response;
+      } else if (response.success && response.isNewUser) {
+        // User needs to fill details
+        return response;
       } else {
         console.log('Login failed:', response);
-        throw new Error(response.error?.message || response.message || 'Login failed');
+        throw new Error(response.error?.message || response.message || 'Verification failed');
       }
     } catch (error) {
       console.error('Login error:', error);
-      // Clear any partial state on error
       apiService.removeAuthToken();
       setUser(null);
       throw error;
@@ -155,12 +151,24 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
       setIsLoading(true);
       const response = await apiService.registerUser(userData);
       
-      if (response.success) {
-        // After successful registration, user needs to verify OTP
-        // You might want to handle this differently based on your flow
+      if (response.success && response.token) {
+        apiService.setAuthToken(response.token);
+        try {
+          const profileResponse = await apiService.getUserProfile();
+          if (profileResponse.success) {
+            const userProfile = profileResponse.data?.user || profileResponse.data;
+            setUser(userProfile);
+          } else {
+            setUser(response.user);
+          }
+        } catch (profileErr) {
+          setUser(response.user);
+        }
+        return response;
+      } else if (response.success) {
         return response;
       } else {
-        throw new Error(response.message || 'Registration failed');
+        throw new Error(response.error?.message || response.message || 'Registration failed');
       }
     } catch (error) {
       console.error('Registration error:', error);
@@ -208,6 +216,29 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
     }
   };
 
+  const updateAvatar = async (file: File): Promise<string> => {
+    try {
+      setIsLoading(true);
+      const response = await apiService.uploadUserAvatar(file);
+      if (response.success) {
+        const updatedUser = response.data?.user || response.user;
+        if (updatedUser) {
+          setUser(updatedUser);
+        } else if (response.data?.profilePicture) {
+          setUser(prev => prev ? { ...prev, profilePicture: response.data.profilePicture } : null);
+        }
+        return response.data?.profilePicture || '';
+      } else {
+        throw new Error(response.message || response.error?.message || 'Profile picture upload failed');
+      }
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const refreshUser = async () => {
     try {
       console.log('Refreshing user data');
@@ -240,6 +271,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
     register,
     logout,
     updateProfile,
+    updateAvatar,
     refreshUser,
   };
 

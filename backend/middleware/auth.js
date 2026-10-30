@@ -3,28 +3,22 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Admin = require('../models/Admin');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Protect routes - require authentication
 const protect = async (req, res, next) => {
   let token;
 
-  console.log('=== AUTH MIDDLEWARE ===');
-  console.log('Headers:', req.headers);
-  console.log('Authorization header:', req.headers.authorization);
 
   // Check for token in headers
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
-    console.log('Token extracted from header:', token ? 'Present' : 'Missing');
   } else if (req.cookies && req.cookies.token) {
     token = req.cookies.token;
-    console.log('Token extracted from cookies:', token ? 'Present' : 'Missing');
   }
 
   // Check if token exists
   if (!token) {
-    console.log('No token found');
     return res.status(401).json({
       success: false,
       error: {
@@ -35,16 +29,13 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    console.log('Verifying token...');
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
-    console.log('Token decoded successfully, user ID:', decoded.id);
     
     // Get user from token
     const user = await User.findById(decoded.id).select('-password');
     
     if (!user) {
-      console.log('User not found in database');
       return res.status(401).json({
         success: false,
         error: {
@@ -56,7 +47,6 @@ const protect = async (req, res, next) => {
 
     // Check if user is active
     if (!user.isActive) {
-      console.log('User account is deactivated');
       return res.status(401).json({
         success: false,
         error: {
@@ -66,11 +56,9 @@ const protect = async (req, res, next) => {
       });
     }
 
-    console.log('User authenticated successfully:', user._id);
     req.user = user;
     next();
   } catch (error) {
-    console.log('Token verification failed:', error.message);
     return res.status(401).json({
       success: false,
       error: {
@@ -85,21 +73,14 @@ const protect = async (req, res, next) => {
 const protectDriver = async (req, res, next) => {
   let token;
 
-  console.log('=== DRIVER AUTH MIDDLEWARE ===');
-  console.log('Headers:', req.headers);
-  console.log('Authorization header:', req.headers.authorization);
-  console.log('Cookies:', req.cookies);
 
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
-    console.log('Token extracted from header:', token ? 'Present' : 'Missing');
   } else if (req.cookies && req.cookies.driverToken) {
     token = req.cookies.driverToken;
-    console.log('Token extracted from cookies:', token ? 'Present' : 'Missing');
   }
 
   if (!token) {
-    console.log('No driver token found');
     return res.status(401).json({
       success: false,
       error: {
@@ -110,15 +91,11 @@ const protectDriver = async (req, res, next) => {
   }
 
   try {
-    console.log('Verifying driver token...');
     const decoded = jwt.verify(token, JWT_SECRET);
-    console.log('Driver token decoded successfully, driver ID:', decoded.id);
     
     const driver = await Driver.findById(decoded.id).select('-password');
-    console.log('Driver found in database:', driver ? 'Yes' : 'No');
     
     if (!driver) {
-      console.log('Driver not found in database');
       return res.status(401).json({
         success: false,
         error: {

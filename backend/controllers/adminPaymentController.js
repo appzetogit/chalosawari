@@ -4,6 +4,9 @@ const Booking = require('../models/Booking');
 const RazorpayService = require('../services/razorpayService');
 const asyncHandler = require('../middleware/asyncHandler');
 
+// Escape user search text before using it in $regex (avoids regex injection / ReDoS)
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @desc    Get all payments with pagination and filters
 // @route   GET /api/admin/payments
 // @access  Private (Admin)
@@ -43,9 +46,9 @@ const getAllPayments = asyncHandler(async (req, res) => {
   
   if (search) {
     query.$or = [
-      { transactionId: { $regex: search, $options: 'i' } },
-      { 'paymentDetails.razorpayPaymentId': { $regex: search, $options: 'i' } },
-      { 'paymentDetails.razorpayOrderId': { $regex: search, $options: 'i' } }
+      { transactionId: { $regex: escapeRegex(search), $options: 'i' } },
+      { 'paymentDetails.razorpayPaymentId': { $regex: escapeRegex(search), $options: 'i' } },
+      { 'paymentDetails.razorpayOrderId': { $regex: escapeRegex(search), $options: 'i' } }
     ];
   }
 

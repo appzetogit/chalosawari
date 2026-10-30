@@ -1,14 +1,14 @@
 const express = require('express');
 const { body } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 const {
   sendOTPForAuth,
   verifyOTPAndProceed,
+  registerUser,
   resendOTP,
   sendDriverOTP,
   verifyDriverOTPAndProceed,
   resendDriverOTP,
-  loginDriver,
-  loginAdmin,
   logout,
   getMe
 } = require('../controllers/authController');
@@ -44,8 +44,9 @@ const otpValidation = [
     .isNumeric()
     .withMessage('OTP must be a 6-digit number'),
   body('purpose')
-    .isIn(['signup', 'login'])
-    .withMessage('Purpose must be either signup or login')
+    .optional()
+    .isIn(['signup', 'login', 'auth'])
+    .withMessage('Purpose must be either signup, login, or auth')
 ];
 
 const userDataValidation = [
@@ -135,40 +136,37 @@ const driverRegistrationValidation = [
     .withMessage('Password must be at least 6 characters long')
 ];
 
-const loginValidation = [
-  body('phone')
-    .matches(/^[0-9]{10}$/)
-    .withMessage('Please provide a valid 10-digit phone number'),
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-];
+// Max 5 OTP sends per phone per 15 min (stops SMS bombing / brute force via resend)
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => String(req.body?.phone || '').replace(/[^0-9]/g, '').slice(-10) || req.ip,
+  message: { success: false, error: { message: 'Too many OTP requests. Please try again after 15 minutes.', statusCode: 429 } },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
-const adminLoginValidation = [
-  body('email')
-    .isEmail()
-    .normalizeEmail()
-    .withMessage('Please provide a valid email address'),
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-];
+// Max 10 OTP verify attempts per phone per 15 min, across resends
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => String(req.body?.phone || '').replace(/[^0-9]/g, '').slice(-10) || req.ip,
+  message: { success: false, error: { message: 'Too many attempts. Please try again after 15 minutes.', statusCode: 429 } },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // Public routes
-router.post('/send-otp', phoneValidation, validate, sendOTPForAuth);
-router.post('/verify-otp', otpValidation, validate, verifyOTPAndProceed);
-router.post('/resend-otp', phoneValidation, validate, resendOTP);
+router.post('/send-otp', otpSendLimiter, phoneValidation, validate, sendOTPForAuth);
+router.post('/verify-otp', otpVerifyLimiter, otpValidation, validate, verifyOTPAndProceed);
+router.post('/register', phoneValidation, validate, registerUser);
+router.post('/resend-otp', otpSendLimiter, phoneValidation, validate, resendOTP);
 
 // Driver OTP routes
-router.post('/driver/send-otp', phoneValidation, validate, sendDriverOTP);
-router.post('/driver/verify-otp', otpValidation, validate, verifyDriverOTPAndProceed);
-router.post('/driver/resend-otp', phoneValidation, validate, resendDriverOTP);
+router.post('/driver/send-otp', otpSendLimiter, phoneValidation, validate, sendDriverOTP);
+router.post('/driver/verify-otp', otpVerifyLimiter, otpValidation, validate, verifyDriverOTPAndProceed);
+router.post('/driver/resend-otp', otpSendLimiter, phoneValidation, validate, resendDriverOTP);
 
-// Driver routes (legacy - for backward compatibility)
-router.post('/driver/login', loginValidation, validate, loginDriver);
-
-// Admin routes
-router.post('/admin/login', adminLoginValidation, validate, loginAdmin);
 
 // Protected routes
 router.post('/logout', protect, logout);

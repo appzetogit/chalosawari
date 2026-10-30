@@ -1,5 +1,7 @@
 const User = require('../models/User');
 const Booking = require('../models/Booking');
+const Driver = require('../models/Driver');
+const Vehicle = require('../models/Vehicle');
 
 // @desc    Get user profile
 // @route   GET /api/user/profile
@@ -12,6 +14,42 @@ const getUserProfile = async (req, res, next) => {
       success: true,
       data: {
         user
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Upload user profile picture / avatar
+// @route   POST /api/user/avatar
+// @access  Private
+const uploadAvatar = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Please select an image file to upload',
+          statusCode: 400
+        }
+      });
+    }
+
+    const relativeUrl = req.file.path || `/uploads/avatars/${req.file.filename}`;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { profilePicture: relativeUrl },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture uploaded successfully',
+      data: {
+        profilePicture: relativeUrl,
+        user: updatedUser
       }
     });
   } catch (error) {
@@ -33,7 +71,8 @@ const updateUserProfile = async (req, res, next) => {
       dateOfBirth,
       address,
       location,
-      emergencyContact
+      emergencyContact,
+      profilePicture
     } = req.body;
 
     // Check if email or phone is being updated and if they already exist
@@ -50,33 +89,36 @@ const updateUserProfile = async (req, res, next) => {
       }
     }
 
-    if (phone && phone !== req.user.phone) {
-      const existingUser = await User.findOne({ phone });
-      if (existingUser) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            message: 'Phone number already exists',
-            statusCode: 400
-          }
-        });
-      }
+    // Phone is the OTP login identity; changing it here would skip OTP verification
+    if (phone && String(phone).replace(/[^0-9]/g, '').slice(-10) !== req.user.phone) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Phone number cannot be changed. Please contact support.',
+          statusCode: 400
+        }
+      });
+    }
+
+    const updateFields = {
+      firstName,
+      lastName,
+      email,
+      gender,
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+      address,
+      location,
+      emergencyContact
+    };
+
+    if (profilePicture !== undefined) {
+      updateFields.profilePicture = profilePicture;
     }
 
     // Update user profile
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
-      {
-        firstName,
-        lastName,
-        email,
-        phone,
-        gender,
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-        address,
-        location,
-        emergencyContact
-      },
+      updateFields,
       {
         new: true,
         runValidators: true
@@ -114,8 +156,8 @@ const getUserBookings = async (req, res, next) => {
     if (id) {
       const booking = await Booking.findById(id)
         .populate('driver', 'firstName lastName phone')
-        .populate('vehicle', 'type brand model color registrationNumber')
-        .select('tripDetails pricing status bookingNumber createdAt user cancellation');
+        .populate('vehicle', 'type brand model color registrationNumber pricingReference isAc seatingCapacity')
+        .select('tripDetails pricing payment status bookingNumber createdAt user cancellation tripType returnDate rating');
 
       if (!booking) {
         return res.status(404).json({
@@ -153,8 +195,8 @@ const getUserBookings = async (req, res, next) => {
 
     const bookings = await Booking.find(query)
       .populate('driver', 'firstName lastName phone')
-      .populate('vehicle', 'type brand model color registrationNumber')
-      .select('tripDetails pricing status bookingNumber createdAt user cancellation')
+      .populate('vehicle', 'type brand model color registrationNumber pricingReference isAc seatingCapacity')
+      .select('tripDetails pricing payment status bookingNumber createdAt user cancellation tripType returnDate rating')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -170,48 +212,6 @@ const getUserBookings = async (req, res, next) => {
           hasNextPage: page < totalPages,
           hasPrevPage: page > 1
         }
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get user wallet
-// @route   GET /api/user/wallet
-// @access  Private
-const getUserWallet = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id).select('wallet');
-
-    res.status(200).json({
-      success: true,
-      data: {
-        wallet: user.wallet
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Add money to wallet
-// @route   POST /api/user/wallet/add-money
-// @access  Private
-const addMoneyToWallet = async (req, res, next) => {
-  try {
-    const { amount, description = 'Wallet recharge' } = req.body;
-
-    const user = await User.findById(req.user.id);
-    
-    // Add money to wallet
-    await user.addToWallet(amount, description);
-
-    res.status(200).json({
-      success: true,
-      message: `₹${amount} added to wallet successfully`,
-      data: {
-        wallet: user.wallet
       }
     });
   } catch (error) {
@@ -364,11 +364,11 @@ const requestCancellation = async (req, res, next) => {
     }
 
     // Check if the booking can be cancelled
-    if (!['pending', 'accepted'].includes(booking.status)) {
+    if (booking.status !== 'pending') { // after the driver accepts, only admin can cancel
       return res.status(400).json({
         success: false,
         error: {
-          message: 'This booking cannot be cancelled at this stage',
+          message: 'This booking is already accepted by the driver. Please contact support to cancel.',
           statusCode: 400
         }
       });
@@ -426,14 +426,63 @@ const requestCancellation = async (req, res, next) => {
   }
 };
 
+// @desc    Rate a completed trip (once per booking); updates driver and vehicle averages
+// @route   PUT /api/user/bookings/:id/rating
+// @access  Private
+const rateBooking = async (req, res, next) => {
+  try {
+    const stars = Number(req.body.stars);
+    const review = (req.body.review || '').trim();
+
+    // Claim the booking for rating atomically so a double submit can't count twice
+    const booking = await Booking.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id, status: 'completed', 'rating.stars': { $exists: false } },
+      { $set: { rating: { stars, review, ratedAt: new Date() } } },
+      { new: true }
+    );
+    if (!booking) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Only your completed trips can be rated, and only once', statusCode: 400 }
+      });
+    }
+
+    // Running average for the driver: avg' = (avg * n + stars) / (n + 1)
+    const driver = await Driver.findById(booking.driver).select('rating reviewCount');
+    if (driver) {
+      const count = driver.reviewCount || 0;
+      const average = ((driver.rating || 0) * count + stars) / (count + 1);
+      await Driver.updateOne(
+        { _id: driver._id },
+        { $set: { rating: Math.round(average * 10) / 10 }, $inc: { reviewCount: 1 } }
+      );
+    }
+
+    try {
+      const vehicle = await Vehicle.findById(booking.vehicle);
+      if (vehicle) await vehicle.addRating(stars);
+    } catch (error) {
+      console.error(`Vehicle rating update failed for booking ${booking._id}:`, error.message);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Thanks for rating your trip',
+      data: { rating: booking.rating }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateUserProfile,
+  uploadAvatar,
   getUserBookings,
-  getUserWallet,
-  addMoneyToWallet,
   getUserPreferences,
   updateUserPreferences,
   deleteUserAccount,
-  requestCancellation
+  requestCancellation,
+  rateBooking
 };

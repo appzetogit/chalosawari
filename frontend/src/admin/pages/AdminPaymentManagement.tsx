@@ -307,10 +307,14 @@ const AdminPaymentManagement = () => {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-    }).format(amount);
+    const num = Number(amount) || 0;
+    if (Number.isInteger(num)) {
+      return `₹${num.toLocaleString('en-IN')}`;
+    }
+    return `₹${Number(num.toFixed(2)).toLocaleString('en-IN', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 2
+    })}`;
   };
 
   const formatDate = (dateString: string) => {

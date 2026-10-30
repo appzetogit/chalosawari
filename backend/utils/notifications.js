@@ -8,7 +8,7 @@ const smsIndiaHubService = require('../services/smsIndiaHubService');
  */
 const sendOTP = async (phone, otp) => {
   try {
-    console.log(`Attempting to send OTP ${otp} to phone: ${phone}`);
+    console.log(`Attempting to send OTP to phone: ${phone}`);
     
     const result = await smsIndiaHubService.sendOTP(phone, otp);
     

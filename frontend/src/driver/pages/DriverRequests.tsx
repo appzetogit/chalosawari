@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import DriverTopNavigation from "@/driver/components/DriverTopNavigation";
 import DriverBottomNavigation from "@/driver/components/DriverBottomNavigation";
-import { ArrowLeft, CheckCircle, XCircle, Clock, MapPin, User, Car, Calendar, Clock as ClockIcon, CreditCard } from "lucide-react";
+import { CheckCircle, XCircle, Clock, MapPin, User, Car, Calendar, CreditCard, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +73,7 @@ const DriverRequests = () => {
         tripType: booking.tripDetails?.tripType || 'one-way'
       };
     }
-    
+
     // Fallback: return safe default if no pricing data
     return {
       totalAmount: 0,
@@ -87,6 +86,8 @@ const DriverRequests = () => {
   const [bookings, setBookings] = useState<BookingRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  // Booking whose "Complete Trip" was tapped and now shows the cash collection step
+  const [collectingCashFor, setCollectingCashFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -111,21 +112,24 @@ const DriverRequests = () => {
     }
   };
 
-  const updateBookingStatus = async (bookingId: string, newStatus: string) => {
+  const updateBookingStatus = async (bookingId: string, newStatus: string, extras: Record<string, unknown> = {}) => {
     try {
       setUpdatingStatus(bookingId);
-      await apiService.updateDriverBookingStatus(bookingId, newStatus);
+      await apiService.updateDriverBookingStatus(bookingId, newStatus, extras);
+      setCollectingCashFor(null);
 
       // Update local state
-      setBookings(prev => prev.map(booking => 
-        booking._id === bookingId 
+      setBookings(prev => prev.map(booking =>
+        booking._id === bookingId
           ? { ...booking, status: newStatus }
           : booking
       ));
 
       toast({
         title: "Success",
-        description: `Booking ${newStatus} successfully`,
+        description: extras.cashCollected
+          ? "Cash collected and trip completed"
+          : `Booking ${newStatus} successfully`,
       });
 
       // Refresh bookings to get updated data
@@ -147,20 +151,20 @@ const DriverRequests = () => {
       setUpdatingStatus(bookingId);
       // Use generic booking endpoint via apiService to ensure auth headers
       const resp = await apiService.request(`/bookings/${bookingId}/collect-cash-payment`, { method: 'PUT' }, 'driver');
-      
+
       // Update local state
-      setBookings(prev => prev.map(booking => 
-        booking._id === bookingId 
+      setBookings(prev => prev.map(booking =>
+        booking._id === bookingId
           ? {
-              ...booking,
-              payment: {
-                ...booking.payment,
-                partialPaymentDetails: {
-                  ...booking.payment.partialPaymentDetails,
-                  cashPaymentStatus: 'collected'
-                }
+            ...booking,
+            payment: {
+              ...booking.payment,
+              partialPaymentDetails: {
+                ...booking.payment.partialPaymentDetails,
+                cashPaymentStatus: 'collected'
               }
             }
+          }
           : booking
       ));
 
@@ -204,10 +208,10 @@ const DriverRequests = () => {
     switch (booking.status) {
       case 'pending':
         return (
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <Button
               size="sm"
-              className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
+              className="bg-green-600 hover:bg-green-700 w-full h-10 rounded-xl"
               onClick={() => updateBookingStatus(booking._id, 'accepted')}
               disabled={updatingStatus === booking._id}
             >
@@ -217,7 +221,7 @@ const DriverRequests = () => {
             <Button
               size="sm"
               variant="outline"
-              className="border-red-600 text-red-600 hover:bg-red-50 w-full sm:w-auto"
+              className="border-red-600 text-red-600 hover:bg-red-50 w-full h-10 rounded-xl"
               onClick={() => updateBookingStatus(booking._id, 'cancelled')}
               disabled={updatingStatus === booking._id}
             >
@@ -230,7 +234,7 @@ const DriverRequests = () => {
         return (
           <Button
             size="sm"
-            className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
+            className="bg-blue-600 hover:bg-blue-700 w-full h-10 rounded-xl"
             onClick={() => updateBookingStatus(booking._id, 'started')}
             disabled={updatingStatus === booking._id}
           >
@@ -238,26 +242,65 @@ const DriverRequests = () => {
             Start Trip
           </Button>
         );
-      case 'started':
+      case 'started': {
+        const cashDue = booking.payment?.isPartialPayment &&
+          booking.payment.partialPaymentDetails?.cashPaymentStatus !== 'collected'
+          ? booking.payment.partialPaymentDetails?.cashAmount || 0
+          : 0;
+
+        // Step 2 (advance bookings): confirm the remaining cash; this also completes the trip
+        if (cashDue > 0 && collectingCashFor === booking._id) {
+          return (
+            <div className="space-y-2">
+              <p className="text-xs text-center text-orange-700">
+                Collect <span className="font-bold">₹{cashDue.toLocaleString()}</span> cash from the passenger
+              </p>
+              <div className="grid grid-cols-[auto_1fr] gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-10 rounded-xl px-4"
+                  onClick={() => setCollectingCashFor(null)}
+                  disabled={updatingStatus === booking._id}
+                >
+                  Back
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-orange-600 hover:bg-orange-700 w-full h-10 rounded-xl"
+                  onClick={() => updateBookingStatus(booking._id, 'completed', { cashCollected: true })}
+                  disabled={updatingStatus === booking._id}
+                >
+                  <CreditCard className="w-4 h-4 mr-1" />
+                  Cash Collected ₹{cashDue.toLocaleString()}
+                </Button>
+              </div>
+            </div>
+          );
+        }
+
         return (
           <Button
             size="sm"
-            className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
-            onClick={() => updateBookingStatus(booking._id, 'completed')}
+            className="bg-green-600 hover:bg-green-700 w-full h-10 rounded-xl"
+            onClick={() => cashDue > 0
+              ? setCollectingCashFor(booking._id)
+              : updateBookingStatus(booking._id, 'completed')}
             disabled={updatingStatus === booking._id}
           >
             <CheckCircle className="w-4 h-4 mr-1" />
             Complete Trip
           </Button>
         );
+      }
       case 'completed':
         // Show payment collection button for partial payment bookings
-        if (booking.payment?.isPartialPayment && 
-            booking.payment.partialPaymentDetails?.cashPaymentStatus === 'pending') {
+        if (booking.payment?.isPartialPayment &&
+          booking.payment.partialPaymentDetails?.cashPaymentStatus === 'pending') {
           return (
             <Button
               size="sm"
-              className="bg-orange-600 hover:bg-orange-700 w-full sm:w-auto"
+              className="bg-orange-600 hover:bg-orange-700 w-full h-10 rounded-xl"
               onClick={() => collectCashPayment(booking._id)}
               disabled={updatingStatus === booking._id}
             >
@@ -292,242 +335,156 @@ const DriverRequests = () => {
   // Rendering is protected by the route guard; avoid early return that can cause blank screen during auth state transitions
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <DriverTopNavigation />
-      
+    <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b flex-shrink-0">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/driver')}
-              className="hover:bg-gray-100 self-start sm:self-auto"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              <span className="hidden sm:inline">Back to Dashboard</span>
-              <span className="sm:hidden">Back</span>
-            </Button>
-            <div className="flex-1">
-              <h1 className="text-lg sm:text-xl font-bold text-gray-900">Booking Requests</h1>
-              <p className="text-xs sm:text-sm text-gray-600">Manage incoming ride requests</p>
-            </div>
-          </div>
+      <div className="bg-white border-b border-gray-200 flex-shrink-0">
+        <div className="px-4 py-3 flex items-center justify-between">
+          <h1 className="text-lg font-bold text-gray-900">Booking Requests</h1>
+          {bookings.length > 0 && (
+            <span className="text-xs font-semibold text-gray-500">
+              {bookings.filter(b => b.status === 'pending').length} new
+            </span>
+          )}
         </div>
       </div>
 
       {/* Main Content - Scrollable */}
       <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 pb-20">
-        {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : bookings.length === 0 ? (
-          <Card className="text-center py-12">
-            <CardContent>
-              <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-600 mb-2">No Booking Requests</h3>
-              <p className="text-gray-500">You don't have any pending booking requests at the moment.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2 sm:space-y-3">
-            {bookings.map((booking) => (
-              <Card 
-                key={booking._id} 
-                className={`hover:shadow-md transition-shadow ${
-                  booking.tripDetails.tripType === 'return' 
-                    ? 'border-l-4 border-l-blue-500' 
-                    : ''
-                }`}
-              >
-                <CardHeader className="pb-2 pt-3 px-3 sm:px-4">
-                  <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <Car className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <CardTitle className="text-base">#{booking.bookingNumber}</CardTitle>
-                        <div className="flex flex-wrap items-center gap-1 text-xs text-gray-600 mt-0.5">
-                          {getStatusBadge(booking.status)}
-                          <span className="hidden sm:inline">•</span>
-                          <span className="text-xs">{formatDate(booking.createdAt)}</span>
-                          {/* Show trip type badge */}
-                          {booking.tripDetails.tripType === 'return' && (
-                            <>
-                              <span className="hidden sm:inline">•</span>
-                              <Badge variant="outline" className="text-blue-600 border-blue-600 text-xs px-1 py-0">
-                                Round Trip
-                              </Badge>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-center sm:text-right">
-                      <div className="text-lg sm:text-xl font-bold text-green-600">
-                        ₹{getBookingPricing(booking).totalAmount.toLocaleString()}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {getBookingPricing(booking).ratePerKm}/km
-                      </div>
-                      {/* Show partial payment info for bus/car with cash method */}
-                      {booking.payment?.isPartialPayment && (
-                        <div className="mt-0.5 text-xs">
-                          <div className="text-blue-600">
-                            Online: ₹{booking.payment.partialPaymentDetails?.onlineAmount}
-                          </div>
-                          <div className="text-orange-600">
-                            Cash: ₹{booking.payment.partialPaymentDetails?.cashAmount}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                
-                <CardContent className="space-y-2 sm:space-y-3 px-3 sm:px-4 pb-3">
-                  {/* Trip Details */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {/* Left Column - Locations */}
-                    <div className="space-y-2">
-                      <div className="flex items-start space-x-2">
-                        <MapPin className="w-3 h-3 text-green-600 mt-1 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-gray-900">Pickup</p>
-                          <p className="text-xs text-gray-600 break-words">{booking.tripDetails.pickup.address}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start space-x-2">
-                        <MapPin className="w-3 h-3 text-red-600 mt-1 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-gray-900">Destination</p>
-                          <p className="text-xs text-gray-600 break-words">{booking.tripDetails.destination.address}</p>
-                        </div>
-                      </div>
-                      {/* Show round trip information if available */}
-                      {booking.tripDetails.tripType === 'return' && (
-                        <>
-                          <div className="flex items-start space-x-2">
-                            <MapPin className="w-3 h-3 text-blue-600 mt-1 flex-shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium text-gray-900">Return Pickup</p>
-                              <p className="text-xs text-gray-600 break-words">{booking.tripDetails.destination.address}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-start space-x-2">
-                            <MapPin className="w-3 h-3 text-purple-600 mt-1 flex-shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium text-gray-900">Return Destination</p>
-                              <p className="text-xs text-gray-600 break-words">{booking.tripDetails.pickup.address}</p>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    
-                    {/* Right Column - Passenger & Date Info */}
-                    <div className="space-y-2">
-                      <div className="flex items-start space-x-2">
-                        <User className="w-3 h-3 text-blue-600 mt-1 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-gray-900">Passenger</p>
-                          <p className="text-xs text-gray-600">
-                            {booking.user.firstName} {booking.user.lastName}
-                          </p>
-                          {booking.status === 'accepted' ? (
-                            <p className="text-xs text-gray-500">{booking.user.phone}</p>
-                          ) : (
-                            <p className="text-xs text-gray-400 italic"></p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-start space-x-2">
-                        <Calendar className="w-3 h-3 text-purple-600 mt-1 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-gray-900">Date & Time</p>
-                          <p className="text-xs text-gray-600">
-                            {formatDate(booking.tripDetails.date)} at {formatTime(booking.tripDetails.time)}
-                          </p>
-                          {/* Show return date for round trips */}
-                          {booking.tripDetails.tripType === 'return' && booking.tripDetails.returnDate && (
-                            <p className="text-xs text-blue-600 mt-0.5">
-                              Return: {formatDate(booking.tripDetails.returnDate)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+        <div className="max-w-2xl mx-auto px-3 py-3 pb-24 space-y-3">
+          {loading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+            </div>
+          ) : bookings.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-200 text-center py-12 px-4">
+              <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <h3 className="text-base font-semibold text-gray-700 mb-1">No Booking Requests</h3>
+              <p className="text-sm text-gray-500">New bookings for your vehicles will show up here.</p>
+            </div>
+          ) : (
+            bookings.map((booking) => {
+              const pricing = getBookingPricing(booking);
+              const partial = booking.payment?.isPartialPayment ? booking.payment.partialPaymentDetails : null;
+              const isRoundTrip = booking.tripDetails.tripType === 'return';
+              const showPhone = ['accepted', 'started'].includes(booking.status) && booking.user?.phone;
+              const vehicleName = booking.vehicle?.brand || 'Vehicle';
+              const actions = getStatusActions(booking);
 
-                  {/* Trip Info */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-2 border-t">
-                    <div className="text-center">
-                      <div className="text-sm font-semibold text-gray-900">
-                        {booking.tripDetails.distance.toFixed(1)} km
-                      </div>
-                      <div className="text-xs text-gray-500">Distance</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-sm font-semibold text-gray-900">
-                        {booking.tripDetails.passengers}
-                      </div>
-                      <div className="text-xs text-gray-500">Passengers</div>
-                    </div>
-                    <div className="text-center col-span-2 lg:col-span-1">
-                      <div className="text-sm font-semibold text-gray-900 truncate">
-                        {(booking.vehicle?.brand || 'Vehicle')} {(booking.vehicle?.model || '')}
-                      </div>
-                      <div className="text-xs text-gray-500">Vehicle</div>
-                    </div>
-                    <div className="text-center col-span-2 lg:col-span-1">
-                      <div className="text-sm font-semibold text-gray-900">
-                        {booking.tripDetails.tripType === 'return' ? 'Round Trip' : 'One Way'}
-                      </div>
-                      <div className="text-xs text-gray-500">Trip Type</div>
-                    </div>
-                  </div>
-
-                  {/* Round Trip Summary */}
-                  {booking.tripDetails.tripType === 'return' && (
-                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-200">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
-                        <span className="text-xs font-medium text-blue-800">Round Trip Summary</span>
-                      </div>
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 text-xs">
-                        <div className="flex flex-col sm:flex-row lg:flex-col sm:items-center sm:justify-between lg:items-start">
-                          <span className="text-blue-700 font-medium">Outbound:</span>
-                          <span className="text-blue-600 mt-0.5 sm:mt-0 lg:mt-0.5">
-                            {formatDate(booking.tripDetails.date)} at {formatTime(booking.tripDetails.time)}
-                          </span>
-                        </div>
-                        {booking.tripDetails.returnDate && (
-                          <div className="flex flex-col sm:flex-row lg:flex-col sm:items-center sm:justify-between lg:items-start">
-                            <span className="text-blue-700 font-medium">Return:</span>
-                            <span className="text-blue-600 mt-0.5 sm:mt-0 lg:mt-0.5">
-                              {formatDate(booking.tripDetails.returnDate)} at {formatTime(booking.tripDetails.time)}
-                            </span>
-                          </div>
+              return (
+                <div key={booking._id} className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+                  {/* Top: status + amount */}
+                  <div className="p-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {getStatusBadge(booking.status)}
+                        {isRoundTrip && (
+                          <Badge variant="outline" className="text-blue-700 border-blue-300 bg-blue-50 text-[11px]">Round Trip</Badge>
                         )}
                       </div>
+                      <p className="text-xs text-gray-500 mt-1.5">#{booking.bookingNumber}</p>
                     </div>
-                  )}
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xl font-bold text-gray-900">₹{pricing.totalAmount.toLocaleString()}</p>
+                      <p className="text-[11px] text-gray-500">₹{pricing.ratePerKm}/km (2x)</p>
+                    </div>
+                  </div>
+
+                  {/* Payment split */}
+                  {partial ? (
+                    <div className="mx-4 mb-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                        <p className="text-emerald-700">Paid online</p>
+                        <p className="font-bold text-emerald-800">₹{(partial.onlineAmount || 0).toLocaleString()}</p>
+                      </div>
+                      <div className={`rounded-xl px-3 py-2 border ${partial.cashPaymentStatus === 'collected' ? 'bg-gray-50 border-gray-200' : 'bg-orange-50 border-orange-100'}`}>
+                        <p className={partial.cashPaymentStatus === 'collected' ? 'text-gray-600' : 'text-orange-700'}>
+                          {partial.cashPaymentStatus === 'collected' ? 'Cash collected' : 'Collect in cash'}
+                        </p>
+                        <p className={`font-bold ${partial.cashPaymentStatus === 'collected' ? 'text-gray-800' : 'text-orange-800'}`}>
+                          ₹{(partial.cashAmount || 0).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ) : booking.payment?.status === 'completed' ? (
+                    <div className="mx-4 mb-3 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs flex justify-between">
+                      <span className="text-emerald-700">Fully paid online</span>
+                      <span className="font-bold text-emerald-800">Nothing to collect</span>
+                    </div>
+                  ) : null}
+
+                  {/* Route */}
+                  <div className="px-4 pb-3 flex gap-3">
+                    <div className="flex flex-col items-center pt-1.5 flex-shrink-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                      <span className="w-px flex-1 min-h-5 bg-gray-300 my-1" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2.5">
+                      <div>
+                        <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Pickup</p>
+                        <p className="text-sm font-medium text-gray-900">{booking.tripDetails.pickup.address}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Drop</p>
+                        <p className="text-sm font-medium text-gray-900">{booking.tripDetails.destination.address}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Meta */}
+                  <div className="mx-4 py-2.5 border-t border-gray-100 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-gray-600">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                      {formatDate(booking.tripDetails.date)}, {formatTime(booking.tripDetails.time)}
+                    </span>
+                    <span className="flex items-center gap-1.5" title="Route distance (charged 2x for round trip)">
+                      <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                      {Number(booking.tripDetails.distance || 0).toFixed(1)} km (2x)
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-gray-400" />
+                      {booking.tripDetails.passengers || 1}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Car className="w-3.5 h-3.5 text-gray-400" />
+                      {vehicleName}
+                    </span>
+                    {isRoundTrip && booking.tripDetails.returnDate && (
+                      <span className="text-blue-700 font-medium">Return {formatDate(booking.tripDetails.returnDate)}</span>
+                    )}
+                  </div>
+
+                  {/* Passenger */}
+                  <div className="mx-4 py-2.5 border-t border-gray-100 flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0">
+                      <User className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Passenger</p>
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {booking.user ? `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim() : 'Customer'}
+                      </p>
+                    </div>
+                    {showPhone && (
+                      <a
+                        href={`tel:${booking.user!.phone}`}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200"
+                      >
+                        <Phone className="w-3.5 h-3.5" /> Call
+                      </a>
+                    )}
+                  </div>
 
                   {/* Actions */}
-                  {getStatusActions(booking) && (
-                    <div className="pt-2 border-t">
-                      {getStatusActions(booking)}
+                  {actions && (
+                    <div className="px-4 pb-4 pt-1">
+                      {actions}
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 

@@ -9,7 +9,7 @@ const VehicleSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['bus', 'car', 'auto'],
+    enum: ['bus', 'car'],
     required: [true, 'Vehicle type is required']
   },
   brand: {
@@ -27,6 +27,11 @@ const VehicleSchema = new mongoose.Schema({
     required: [true, 'Seating capacity is required'],
     min: [1, 'Seating capacity must be at least 1'],
     max: [100, 'Seating capacity cannot exceed 100']
+  },
+  mileage: {
+    type: Number,
+    min: [1, 'Mileage must be at least 1 km/L'],
+    default: 15
   },
   isAc: {
     type: Boolean,
@@ -187,7 +192,7 @@ const VehicleSchema = new mongoose.Schema({
     },
     address: {
       type: String,
-      required: [true, 'Vehicle location address is required']
+      default: ''
     },
     city: String,
     state: String,
@@ -208,7 +213,7 @@ const VehicleSchema = new mongoose.Schema({
   pricingReference: {
     category: {
       type: String,
-      enum: ['auto', 'car', 'bus'],
+      enum: ['car', 'bus'],
       required: [true, 'Vehicle category is required']
     },
     vehicleType: {
@@ -408,6 +413,21 @@ VehicleSchema.virtual('displayName').get(function() {
   return `${this.brand} (${this.type})`;
 });
 
+// Virtual for vehicle rating
+VehicleSchema.virtual('rating').get(function() {
+  return this.ratings?.average || this.statistics?.averageRating || 0;
+});
+
+// Virtual for vehicle review count
+VehicleSchema.virtual('reviewCount').get(function() {
+  return this.ratings?.count || 0;
+});
+
+// Virtual for vehicle total trips
+VehicleSchema.virtual('totalTrips').get(function() {
+  return this.statistics?.totalTrips || 0;
+});
+
 // Virtual for total documents
 VehicleSchema.virtual('totalDocuments').get(function() {
   return Object.keys(this.documents).length;
@@ -459,6 +479,19 @@ VehicleSchema.pre('save', function(next) {
   next();
 });
 
+// Fields only admins/the system may set; drop them from driver-supplied update bodies
+const DRIVER_PROTECTED_FIELDS = [
+  'driver', 'isVerified', 'isApproved', 'approvalStatus', 'adminNotes', 'approvedBy', 'approvedAt',
+  'rejectionReason', 'booked', 'currentBooking', 'bookingStatus', 'pricing', 'ratings', 'statistics'
+];
+VehicleSchema.statics.stripProtectedFields = function(body) {
+  DRIVER_PROTECTED_FIELDS.forEach(field => delete body[field]);
+  Object.values(body.documents || {}).forEach(doc => {
+    if (doc && typeof doc === 'object') delete doc.isVerified;
+  });
+  return body;
+};
+
 // Method to update current location
 VehicleSchema.methods.updateLocation = function(latitude, longitude, address) {
   this.currentLocation.coordinates = [longitude, latitude];
@@ -507,41 +540,31 @@ VehicleSchema.methods.calculateFare = function(distance, tripType = 'one-way') {
     throw new Error('Vehicle pricing not available');
   }
   
-  let fare = 0;
+  // For car and bus, calculate distance-based pricing
+  const pricing = this.pricing.distancePricing[tripType] || this.pricing.distancePricing['one-way'];
   
-  // For auto, use auto price (per kilometer rate)
-  if (this.pricingReference.category === 'auto') {
-    if (tripType === 'one-way') {
-      fare = (this.pricing.autoPrice.oneWay || this.pricing.autoPrice.return || 0) * distance;
-    } else {
-      fare = (this.pricing.autoPrice.return || this.pricing.autoPrice.oneWay || 0) * distance;
-    }
-  } else {
-    // For car and bus, calculate distance-based pricing
-    const pricing = this.pricing.distancePricing[tripType] || this.pricing.distancePricing['one-way'];
-    
-    if (!pricing) {
-      throw new Error('Distance pricing not available for this trip type');
-    }
-    
-    let rate = pricing['300km'] || 0; // Default to highest distance rate
-    
-    if (distance <= 50) {
-      rate = pricing['50km'] || 0;
-    } else if (distance <= 100) {
-      rate = pricing['100km'] || 0;
-    } else if (distance <= 150) {
-      rate = pricing['150km'] || 0;
-    } else if (distance <= 200) {
-      rate = pricing['200km'] || 0;
-    } else if (distance <= 250) {
-      rate = pricing['250km'] || 0;
-    } else {
-      rate = pricing['300km'] || 0;
-    }
-    
-    fare = rate * distance;
+  if (!pricing) {
+    throw new Error('Distance pricing not available for this trip type');
   }
+  
+  let rate = pricing['300km'] || 0; // Default to highest distance rate
+  
+  if (distance <= 50) {
+    rate = pricing['50km'] || 0;
+  } else if (distance <= 100) {
+    rate = pricing['100km'] || 0;
+  } else if (distance <= 150) {
+    rate = pricing['150km'] || 0;
+  } else if (distance <= 200) {
+    rate = pricing['200km'] || 0;
+  } else if (distance <= 250) {
+    rate = pricing['250km'] || 0;
+  } else {
+    rate = pricing['300km'] || 0;
+  }
+  
+  // Fare is 2x distance (aane aur jane dono ka / round trip)
+  const fare = rate * distance * 2;
   
   // Round to whole rupees (no decimal places)
   return Math.round(fare);

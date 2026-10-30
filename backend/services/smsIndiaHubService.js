@@ -7,10 +7,12 @@ const axios = require('axios');
 class SMSIndiaHubService {
   constructor() {
     this.apiKey = process.env.SMSINDIAHUB_API_KEY;
-    this.senderId = process.env.SMSINDIAHUB_SENDER_ID;
+    this.senderId = process.env.SMSINDIAHUB_SENDER_ID || 'BGADEC';
+    this.peId = process.env.SMSINDIAHUB_PE_ID || '1001164203633432409';
+    this.templateId = process.env.SMSINDIAHUB_TEMPLATE_ID || '1007282516644508833';
     this.baseUrl = 'http://cloud.smsindiahub.in/vendorsms/pushsms.aspx';
     
-    if (!this.apiKey || !this.senderId) {
+    if (!this.apiKey) {
       console.warn('SMSIndia Hub credentials not configured. SMS functionality will be disabled.');
     }
   }
@@ -22,7 +24,7 @@ class SMSIndiaHubService {
   isConfigured() {
     // Load credentials dynamically in case they weren't available during construction
     const apiKey = this.apiKey || process.env.SMSINDIAHUB_API_KEY;
-    const senderId = this.senderId || process.env.SMSINDIAHUB_SENDER_ID;
+    const senderId = this.senderId || process.env.SMSINDIAHUB_SENDER_ID || 'BGADEC';
     
     return !!(apiKey && senderId);
   }
@@ -65,7 +67,9 @@ class SMSIndiaHubService {
     try {
       // Load credentials dynamically
       const apiKey = this.apiKey || process.env.SMSINDIAHUB_API_KEY;
-      const senderId = this.senderId || process.env.SMSINDIAHUB_SENDER_ID;
+      const senderId = this.senderId || process.env.SMSINDIAHUB_SENDER_ID || 'BGADEC';
+      const peId = this.peId || process.env.SMSINDIAHUB_PE_ID || '1001164203633432409';
+      const templateId = this.templateId || process.env.SMSINDIAHUB_TEMPLATE_ID || '1007282516644508833';
       
       if (!apiKey || !senderId) {
         throw new Error('SMSIndia Hub not configured. Please check your environment variables.');
@@ -78,10 +82,11 @@ class SMSIndiaHubService {
         throw new Error(`Invalid phone number format: ${phone}. Expected 10-digit Indian mobile number.`);
       }
 
-      // Use the verified message template from SMSIndia Hub
-      const message = `Welcome to the Chalo Sawari powered by SMSINDIAHUB. Your OTP for registration is ${otp}`;
+      // Approved DLT Template:
+      // Welcome to the ##var## powered by Appzeto.Your OTP for registration is ##var##.BGADEC
+      const message = `Welcome to the Chalo Sawari powered by Appzeto.Your OTP for registration is ${otp}.BGADEC`;
       
-      // Build the API URL with query parameters (as shown in the example)
+      // Build the API URL with query parameters
       const params = new URLSearchParams({
         APIKey: apiKey,
         msisdn: normalizedPhone,
@@ -89,7 +94,9 @@ class SMSIndiaHubService {
         msg: message,
         fl: '0', // Flash message flag (0 = normal SMS)
         dc: '0', // Delivery confirmation (0 = no confirmation)
-        gwid: '2' // Gateway ID (2 = transactional)
+        gwid: '2', // Gateway ID (2 = transactional)
+        EntityId: peId,
+        TemplateID: templateId
       });
 
       const apiUrl = `${this.baseUrl}?${params.toString()}`;
@@ -106,24 +113,36 @@ class SMSIndiaHubService {
       console.log('SMSIndia Hub Response Status:', response.status);
       console.log('SMSIndia Hub Response Data:', response.data);
 
-      // SMSIndia Hub typically returns HTML or plain text response
-      const responseText = response.data.toString();
+      const resData = response.data;
+      const responseText = typeof resData === 'object' ? JSON.stringify(resData) : resData.toString();
       
-      // Check for success indicators in the response
-      if (responseText.includes('success') || responseText.includes('sent') || responseText.includes('accepted')) {
+      // Check for success indicators in the response (ErrorCode: '000' is SMSIndia Hub success)
+      if (
+        (resData && resData.ErrorCode === '000') ||
+        responseText.includes('Done') ||
+        responseText.includes('success') || 
+        responseText.includes('sent') || 
+        responseText.includes('accepted')
+      ) {
+        const msgId = resData?.MessageData?.[0]?.MessageId || `sms_${Date.now()}`;
         return {
           success: true,
-          messageId: `sms_${Date.now()}`, // Generate a message ID since SMSIndia Hub doesn't always return one
+          messageId: msgId,
           status: 'sent',
           to: normalizedPhone,
           body: message,
           provider: 'SMSIndia Hub',
-          response: responseText
+          response: resData
         };
-      } else if (responseText.includes('error') || responseText.includes('failed') || responseText.includes('invalid')) {
-        throw new Error(`SMSIndia Hub API error: ${responseText}`);
+      } else if (
+        (resData && resData.ErrorCode && resData.ErrorCode !== '000') ||
+        responseText.includes('error') || 
+        responseText.includes('failed') || 
+        responseText.includes('invalid')
+      ) {
+        const errDetail = resData?.ErrorMessage || responseText;
+        throw new Error(`SMSIndia Hub API error (${resData?.ErrorCode || 'Error'}): ${errDetail}`);
       } else {
-        // If we can't determine success/failure from response, assume success if we got a response
         return {
           success: true,
           messageId: `sms_${Date.now()}`,
@@ -131,7 +150,7 @@ class SMSIndiaHubService {
           to: normalizedPhone,
           body: message,
           provider: 'SMSIndia Hub',
-          response: responseText
+          response: resData
         };
       }
 

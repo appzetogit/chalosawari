@@ -17,7 +17,7 @@ const getAllVehiclePricing = asyncHandler(async (req, res) => {
     
     // Ensure all pricing records have the new distance tiers
     for (const record of pricing) {
-      if (record.category !== 'auto' && record.distancePricing) {
+      if (record.distancePricing) {
         const needsUpdate = !record.distancePricing['200km'] || 
                            !record.distancePricing['250km'] || 
                            !record.distancePricing['300km'];
@@ -51,7 +51,7 @@ const getAllVehiclePricing = asyncHandler(async (req, res) => {
   // Ensure all pricing records have the new distance tiers
   if (pricing.docs) {
     for (const record of pricing.docs) {
-      if (record.category !== 'auto' && record.distancePricing) {
+      if (record.distancePricing) {
         const needsUpdate = !record.distancePricing['200km'] || 
                            !record.distancePricing['250km'] || 
                            !record.distancePricing['300km'];
@@ -248,29 +248,14 @@ const updateVehiclePricing = asyncHandler(async (req, res) => {
   });
   
   // Update fields
-  if (autoPrice !== undefined) {
-    // For auto category, validate auto price
-    if (pricing.category === 'auto' && (!autoPrice || autoPrice <= 0)) {
-      console.log('❌ Invalid auto price for update:', autoPrice);
+  if (distancePricing) {
+    if (!distancePricing['50km'] || !distancePricing['100km'] || !distancePricing['150km'] ||
+        !distancePricing['200km'] || !distancePricing['250km'] || !distancePricing['300km']) {
+      console.log('❌ Invalid distance pricing for update:', distancePricing);
       return res.status(400).json({
         success: false,
-        message: 'Auto price must be greater than 0 for auto category'
+        message: 'Distance pricing is required for car and bus categories (50km, 100km, 150km, 200km, 250km, 300km)'
       });
-    }
-    console.log('🔄 Updating auto price from', pricing.autoPrice, 'to', autoPrice);
-    pricing.autoPrice = autoPrice;
-  }
-  if (distancePricing) {
-    // For car and bus categories, validate distance pricing
-    if (pricing.category !== 'auto') {
-      if (!distancePricing['50km'] || !distancePricing['100km'] || !distancePricing['150km'] ||
-          !distancePricing['200km'] || !distancePricing['250km'] || !distancePricing['300km']) {
-        console.log('❌ Invalid distance pricing for update:', distancePricing);
-        return res.status(400).json({
-          success: false,
-          message: 'Distance pricing is required for car and bus categories (50km, 100km, 150km, 200km, 250km, 300km)'
-        });
-      }
     }
     console.log('🔄 Updating distance pricing from', pricing.distancePricing, 'to', distancePricing);
     pricing.distancePricing = distancePricing;
@@ -443,26 +428,12 @@ const getPricingForCalculation = asyncHandler(async (req, res) => {
         // Create default pricing based on category
         let defaultPricing = null;
         
-        if (category === 'auto') {
-          defaultPricing = {
-            category: 'auto',
-            vehicleType: vehicleType,
-            vehicleModel: vehicleModel || 'Standard Auto',
-            tripType: tripType,
-            autoPrice: 200,
-            distancePricing: { '50km': 0, '100km': 0, '150km': 0 },
-            isActive: true,
-            isDefault: true,
-            createdBy: admin._id,
-            notes: `Default ${vehicleModel || 'Standard'} auto pricing`
-          };
-        } else if (category === 'car') {
+        if (category === 'car') {
           defaultPricing = {
             category: 'car',
             vehicleType: vehicleType,
             vehicleModel: vehicleModel || 'Standard Car',
             tripType: tripType,
-            autoPrice: 0,
             distancePricing: { '50km': 12, '100km': 10, '150km': 8, '200km': 7, '250km': 6, '300km': 5 },
             isActive: true,
             isDefault: true,
@@ -475,7 +446,6 @@ const getPricingForCalculation = asyncHandler(async (req, res) => {
             vehicleType: vehicleType,
             vehicleModel: vehicleModel || 'Standard Bus',
             tripType: tripType,
-            autoPrice: 0,
             distancePricing: { '50km': 25, '100km': 20, '150km': 18, '200km': 16, '250km': 15, '300km': 14 },
             isActive: true,
             isDefault: true,
@@ -509,7 +479,7 @@ const getPricingForCalculation = asyncHandler(async (req, res) => {
   }
   
   // Ensure pricing has all distance tiers for car and bus categories
-  if (pricing.category !== 'auto' && pricing.distancePricing) {
+  if (pricing.distancePricing) {
     const needsUpdate = !pricing.distancePricing['200km'] || 
                        !pricing.distancePricing['250km'] || 
                        !pricing.distancePricing['300km'];

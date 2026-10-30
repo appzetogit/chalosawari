@@ -2,13 +2,58 @@ const asyncHandler = require('../middleware/asyncHandler');
 const Offer = require('../models/Offer');
 const { deleteImage } = require('../utils/imageUpload');
 
+// Escape user search text before using it in $regex (avoids regex injection / ReDoS)
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Coupon fields from the admin form (multipart, so everything arrives as strings)
+const pickCouponFields = (body) => {
+  const fields = {};
+  if (body.description !== undefined) fields.description = body.description;
+  if (body.code !== undefined) fields.code = String(body.code).trim().toUpperCase();
+  if (body.discountType !== undefined) fields.discountType = body.discountType;
+  if (body.discountValue !== undefined) fields.discountValue = Number(body.discountValue);
+  if (body.maxDiscount !== undefined) fields.maxDiscount = Number(body.maxDiscount) || 0;
+  if (body.minBookingAmount !== undefined) fields.minBookingAmount = Number(body.minBookingAmount) || 0;
+  if (body.vehicleType !== undefined) fields.vehicleType = body.vehicleType;
+  if (body.validTill !== undefined) fields.validTill = body.validTill ? new Date(body.validTill) : null;
+  return fields;
+};
+
+// @desc    Check a coupon for an amount and vehicle type (checkout preview)
+// @route   POST /api/offers/validate
+// @access  Private (User)
+const validateCoupon = asyncHandler(async (req, res) => {
+  const { code, amount, vehicleType } = req.body;
+  const result = await Offer.applyCoupon(code, { amount: Number(amount) || 0, vehicleType });
+  if (result.error) {
+    return res.status(400).json({ success: false, message: result.error });
+  }
+  res.json({
+    success: true,
+    data: {
+      code: result.offer.code,
+      title: result.offer.title,
+      discount: result.discount,
+      // Rules, so checkout can recompute the same discount if the fare changes
+      discountType: result.offer.discountType,
+      discountValue: result.offer.discountValue,
+      maxDiscount: result.offer.maxDiscount || 0,
+      minBookingAmount: result.offer.minBookingAmount || 0
+    }
+  });
+});
+
 // @desc    Get all active offers
 // @route   GET /api/offers
 // @access  Public
 const getActiveOffers = asyncHandler(async (req, res) => {
-  const offers = await Offer.find({ isActive: true })
+  const offers = await Offer.find({
+    isActive: true,
+    code: { $exists: true, $ne: null },
+    $or: [{ validTill: null }, { validTill: { $exists: false } }, { validTill: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } }]
+  })
     .sort({ createdAt: -1 })
-    .select('title image');
+    .select('title description image code discountType discountValue maxDiscount minBookingAmount vehicleType validTill');
 
   res.json({
     success: true,
@@ -27,7 +72,7 @@ const getAllOffers = asyncHandler(async (req, res) => {
   let query = {};
   
   if (search) {
-    query.title = { $regex: search, $options: 'i' };
+    query.title = { $regex: escapeRegex(search), $options: 'i' };
   }
   
   if (status === 'active') {
@@ -81,23 +126,12 @@ const getOfferById = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/offers
 // @access  Private (Admin)
 const createOffer = asyncHandler(async (req, res) => {
-  console.log('createOffer called with:', { body: req.body, file: req.file, headers: req.headers });
-  
   const { title } = req.body;
-  
-  if (!req.file) {
-    console.log('No file uploaded. req.file:', req.file);
-    return res.status(400).json({
-      success: false,
-      message: 'Offer image is required'
-    });
-  }
-
-  console.log('File uploaded successfully:', req.file);
 
   const offer = await Offer.create({
     title,
-    image: req.file.path
+    image: req.file ? req.file.path : '',
+    ...pickCouponFields(req.body)
   });
 
   res.status(201).json({
@@ -113,16 +147,14 @@ const createOffer = asyncHandler(async (req, res) => {
 const updateOffer = asyncHandler(async (req, res) => {
   const { title } = req.body;
   
-  let updateData = { title };
+  let updateData = { title, ...pickCouponFields(req.body) };
   
   // If new image is uploaded, update image and delete old one
   if (req.file) {
     const offer = await Offer.findById(req.params.id);
     if (offer && offer.image) {
-      // Extract public_id from Cloudinary URL for deletion
-      const publicId = offer.image.split('/').pop().split('.')[0];
       try {
-        await deleteImage(publicId);
+        await deleteImage(offer.image);
       } catch (error) {
         console.error('Error deleting old image:', error);
       }
@@ -166,13 +198,12 @@ const deleteOffer = asyncHandler(async (req, res) => {
     });
   }
 
-  // Delete image from Cloudinary
+  // Delete image from local storage
   if (offer.image) {
     try {
-      const publicId = offer.image.split('/').pop().split('.')[0];
-      await deleteImage(publicId);
+      await deleteImage(offer.image);
     } catch (error) {
-      console.error('Error deleting image from Cloudinary:', error);
+      console.error('Error deleting image from storage:', error);
     }
   }
 
@@ -227,6 +258,7 @@ const getOfferStats = asyncHandler(async (req, res) => {
 
 module.exports = {
   getActiveOffers,
+  validateCoupon,
   getAllOffers,
   getOfferById,
   createOffer,

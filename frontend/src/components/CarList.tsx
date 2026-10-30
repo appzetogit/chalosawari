@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Car, MapPin, Star, Users, Calendar } from 'lucide-react';
+import { Car, MapPin, Star, Users, Calendar, RotateCcw, Sparkles, Navigation, AlertCircle } from 'lucide-react';
 import VehicleApiService from '../services/vehicleApi';
 import VehicleDetailsModal from './VehicleDetailsModal';
 import Checkout from './Checkout';
@@ -47,9 +47,27 @@ interface Car {
       end: string;
     };
   };
-  rating: number;
-  totalTrips: number;
-  totalEarnings: number;
+  rating?: number;
+  reviewCount?: number;
+  totalTrips?: number;
+  totalEarnings?: number;
+  ratings?: {
+    average: number;
+    count: number;
+    breakdown?: {
+      1: number;
+      2: number;
+      3: number;
+      4: number;
+      5: number;
+    };
+  };
+  statistics?: {
+    totalTrips: number;
+    totalDistance: number;
+    totalEarnings: number;
+    averageRating: number;
+  };
   isActive: boolean;
   approvalStatus: 'pending' | 'approved' | 'rejected';
   booked: boolean;
@@ -63,10 +81,6 @@ interface Car {
     phone: string;
   };
   pricing: {
-    autoPrice: {
-      oneWay: number;
-      return: number;
-    };
     distancePricing: {
       oneWay: {
         '50km': number;
@@ -123,23 +137,28 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedCarForCheckout, setSelectedCarForCheckout] = useState<Car | null>(null);
-  
+
   // Ref to prevent multiple simultaneous fetches
   const isFetchingRef = useRef(false);
-  
+
   // Ref to track if we've already fetched data for current params
   const hasFetchedRef = useRef(false);
-  
+
+  // Ref to hold the latest onVehicleDataUpdate callback without causing re-fetches
+  const onVehicleDataUpdateRef = useRef(onVehicleDataUpdate);
+  useEffect(() => {
+    onVehicleDataUpdateRef.current = onVehicleDataUpdate;
+  }, [onVehicleDataUpdate]);
+
   // Initialize vehicle API service with proper parameters
-  const vehicleApi = new VehicleApiService(
-    import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  const vehicleApi = useMemo(() => new VehicleApiService(
+    import.meta.env.VITE_API_BASE_URL || '/api',
     () => ({}) // Empty headers for public access
-  );
+  ), []);
 
   // Create a stable reference for searchParams to prevent infinite re-renders
   const stableSearchParams = useMemo(() => {
-    // Only include essential fields that should trigger a re-fetch
-    const params = {
+    return {
       from: searchParams?.from,
       to: searchParams?.to,
       fromData: searchParams?.fromData,
@@ -148,12 +167,6 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
       serviceType: searchParams?.serviceType,
       passengers: searchParams?.passengers
     };
-    
-    // Only return params if we have meaningful data
-    if (params.fromData && params.fromData.lat && params.fromData.lng) {
-      return params;
-    }
-    return null;
   }, [
     searchParams?.from,
     searchParams?.to,
@@ -182,7 +195,7 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
           if (bookingData.vehicleType === 'car') {
             // Clear the pending booking
             localStorage.removeItem('pendingBooking');
-            
+
             // Set the vehicle for checkout
             setSelectedCarForCheckout(bookingData.vehicle);
             setIsCheckoutOpen(true);
@@ -195,132 +208,119 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
     }
   }, [isAuthenticated]);
 
-  const fetchCars = useCallback(async () => {
+  const fetchCars = useCallback(async (isBackground = false) => {
     // Prevent multiple simultaneous fetches
     if (isFetchingRef.current) {
       console.log('🔍 Already fetching cars, skipping...');
       return;
     }
-    
-    // Check if we have the required data to make the API call
-    if (!stableSearchParams?.fromData?.lat || !stableSearchParams?.fromData?.lng) {
-      console.log('🔍 No location data available, skipping fetch');
-      return;
-    }
-    
+
     isFetchingRef.current = true;
-    
+
     try {
-      setLoading(true);
+      if (!isBackground) {
+        setLoading(true);
+      }
       setError(null);
-      
+
       console.log('🔍 Starting to fetch cars...');
       console.log('🔍 Search params:', stableSearchParams);
-      
+
       // Extract dates and location from stableSearchParams
       const { pickupDate, returnDate, serviceType, fromData } = stableSearchParams || {};
-      console.log('🔍 Pickup date:', pickupDate);
-      console.log('🔍 Return date:', returnDate);
-      console.log('🔍 Service type:', serviceType);
-      console.log('🔍 From location data:', fromData);
-      
+
       let response;
-      
-      // If we have location coordinates, use location-based filtering
+
+      // If we have location coordinates, try location-based filtering first
       if (fromData && fromData.lat && fromData.lng) {
         console.log('🔍 Using location-based filtering with coordinates:', fromData.lat, fromData.lng);
-        response = await vehicleApi.getVehiclesByLocation({
-          latitude: fromData.lat,
-          longitude: fromData.lng,
-          vehicleType: 'car',
-          passengers: stableSearchParams?.passengers || 1,
-          date: pickupDate,
-          returnDate: returnDate
-        });
-      } else if (pickupDate) {
-        // Fallback to date-based filtering
-        response = await vehicleApi.getVehicleCarWithDate(pickupDate, returnDate);
-      } else {
-        // Fallback to general vehicle fetching
-        response = await vehicleApi.getVehicleCar();
+        try {
+          response = await vehicleApi.getVehiclesByLocation({
+            latitude: fromData.lat,
+            longitude: fromData.lng,
+            vehicleType: 'car',
+            passengers: stableSearchParams?.passengers || 1,
+            date: pickupDate,
+            returnDate: returnDate
+          });
+        } catch (e) {
+          console.warn('⚠️ Location search failed, falling back to all cars:', e);
+        }
       }
-      
-      if (response.success) {
-        // Extract vehicles array from response
-        let vehicles: any[] = [];
+
+      // Extract vehicles array from response
+      let vehicles: any[] = [];
+      if (response && response.success) {
         if (Array.isArray(response.data)) {
           vehicles = response.data;
         } else if (response.data && typeof response.data === 'object' && 'docs' in response.data) {
           vehicles = response.data.docs;
         }
-        
-        // Filter only approved, active, and available cars and cast to Car type
-        const approvedCars = vehicles.filter((car: any) => {
-          // Basic filters
-          const isApproved = car.approvalStatus === 'approved';
-          const isActive = car.isActive;
-          // Removed isAvailable filter to show vehicles even when they are not available (booked, in_trip, etc.)
-          // const isAvailable = car.isAvailable;
-          
-          // Removed isNotBooked filter to show vehicles even after booking
-          // const isNotBooked = !car.booked;
-          
-          // Handle bookingStatus - show vehicles regardless of booking status
-          let hasValidBookingStatus = true;
-          if (car.bookingStatus !== undefined) {
-            // Show vehicles with any booking status (available, booked, in_trip, etc.)
-            hasValidBookingStatus = ['available', 'booked', 'in_trip', 'maintenance'].includes(car.bookingStatus);
-          } else {
-            // For old vehicles without bookingStatus, show all
-            hasValidBookingStatus = true;
-          }
-          
-          return isApproved && isActive && hasValidBookingStatus;
-        }) as Car[];
-        
-        // Populate pricing data for all cars to ensure we have the latest 6-tier structure
-        const carsWithPricing = await vehicleApi.populateVehiclePricing(approvedCars);
-        
-        setCars(carsWithPricing);
-        
-        // Update parent component with vehicle data for filters
-        onVehicleDataUpdate?.(carsWithPricing);
-        
-        console.log(`✅ Loaded ${carsWithPricing.length} approved and active cars with updated pricing`);
-      } else {
-        setError('Failed to fetch cars');
-        console.error('❌ Error fetching cars:', response.message);
       }
+
+      // Only fallback to all cars when location search was not possible/failed; otherwise show only nearby cars
+      if (!response?.success) {
+        console.log('🔍 Fallback: Fetching all cars via getVehicleCar...');
+        const fallbackRes = pickupDate
+          ? await vehicleApi.getVehicleCarWithDate(pickupDate, returnDate)
+          : await vehicleApi.getVehicleCar();
+
+        if (fallbackRes.success) {
+          if (Array.isArray(fallbackRes.data)) {
+            vehicles = fallbackRes.data;
+          } else if (fallbackRes.data && typeof fallbackRes.data === 'object' && 'docs' in fallbackRes.data) {
+            vehicles = fallbackRes.data.docs;
+          }
+        }
+      }
+
+      // Filter active and approved/available cars and cast to Car type
+      const approvedCars = vehicles.filter((car: any) => {
+        const isApproved = car.approvalStatus === 'approved' || car.approvalStatus === 'pending' || car.isApproved === true || !car.approvalStatus;
+        const isActive = car.isActive !== false;
+        return isApproved && isActive;
+      }) as Car[];
+
+      // Populate pricing data for any cars that might not have it
+      const carsWithPricing = await vehicleApi.populateVehiclePricing(approvedCars);
+
+      setCars(carsWithPricing);
+
+      // Update parent component with vehicle data for filters
+      onVehicleDataUpdateRef.current?.(carsWithPricing);
+
+      console.log(`✅ Loaded ${carsWithPricing.length} cars with pricing`);
     } catch (err) {
-      setError('Error loading cars');
+      if (!isBackground) {
+        setError('Error loading cars');
+      }
       console.error('❌ Error in fetchCars:', err);
     } finally {
-      setLoading(false);
+      if (!isBackground) {
+        setLoading(false);
+      }
       isFetchingRef.current = false;
     }
-  }, [stableSearchParams, onVehicleDataUpdate]);
+  }, [stableSearchParams, vehicleApi]);
 
-  // Add useEffect after fetchCars is defined
+  // Fetch cars on mount or when search parameters change
   useEffect(() => {
-    // Only fetch if we have meaningful search parameters and haven't fetched yet
-    if (stableSearchParams && stableSearchParams.fromData && !hasFetchedRef.current) {
-      console.log('🔍 CarList: Fetching cars due to search params change');
-      hasFetchedRef.current = true;
-      fetchCars();
-    }
-  }, [stableSearchParams?.fromData?.lat, stableSearchParams?.fromData?.lng, stableSearchParams?.pickupDate, stableSearchParams?.returnDate, fetchCars]); // Only depend on specific values, not the entire object
+    fetchCars();
+  }, [fetchCars]);
 
-  // Refresh pricing data periodically to ensure real-time updates
+  // Refresh pricing data periodically to ensure real-time updates (paused while checkout or modal is open)
   useEffect(() => {
-    if (cars.length > 0) {
+    if (cars.length > 0 && !isCheckoutOpen && !isModalOpen) {
       const refreshInterval = setInterval(() => {
-        console.log('🔄 Refreshing pricing data for real-time updates...');
-        fetchCars();
-      }, 30000); // Refresh every 30 seconds
+        if (!isCheckoutOpen && !isModalOpen) {
+          console.log('🔄 Refreshing pricing data for real-time updates silently...');
+          fetchCars(true);
+        }
+      }, 60000); // Refresh every 60 seconds
 
       return () => clearInterval(refreshInterval);
     }
-  }, [cars.length, fetchCars]);
+  }, [cars.length, isCheckoutOpen, isModalOpen, fetchCars]);
 
   // Apply filters to cars
   const filteredCars = useMemo(() => {
@@ -362,10 +362,8 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
         let basePrice = 0;
         if (car.pricing?.distancePricing?.oneWay?.['50km']) {
           basePrice = car.pricing.distancePricing.oneWay['50km'];
-        } else if (car.pricing?.autoPrice?.oneWay) {
-          basePrice = car.pricing.autoPrice.oneWay;
         }
-        
+
         if (basePrice < filters.priceRange.min || basePrice > filters.priceRange.max) {
           return false;
         }
@@ -380,24 +378,28 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
     if (!filters?.sortBy) return filteredCars;
 
     const sorted = [...filteredCars];
-    
+
     switch (filters.sortBy) {
       case 'price-low':
         sorted.sort((a, b) => {
-          const priceA = a.pricing?.distancePricing?.oneWay?.['50km'] || a.pricing?.autoPrice?.oneWay || 0;
-          const priceB = b.pricing?.distancePricing?.oneWay?.['50km'] || b.pricing?.autoPrice?.oneWay || 0;
+          const priceA = a.pricing?.distancePricing?.oneWay?.['50km'] || 0;
+          const priceB = b.pricing?.distancePricing?.oneWay?.['50km'] || 0;
           return priceA - priceB;
         });
         break;
       case 'price-high':
         sorted.sort((a, b) => {
-          const priceA = a.pricing?.distancePricing?.oneWay?.['50km'] || a.pricing?.autoPrice?.oneWay || 0;
-          const priceB = b.pricing?.distancePricing?.oneWay?.['50km'] || b.pricing?.autoPrice?.oneWay || 0;
+          const priceA = a.pricing?.distancePricing?.oneWay?.['50km'] || 0;
+          const priceB = b.pricing?.distancePricing?.oneWay?.['50km'] || 0;
           return priceB - priceA;
         });
         break;
       case 'rating-high':
-        sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        sorted.sort((a, b) => {
+          const ratingA = a.ratings?.average ?? a.statistics?.averageRating ?? a.rating ?? a.driver?.rating ?? 0;
+          const ratingB = b.ratings?.average ?? b.statistics?.averageRating ?? b.rating ?? b.driver?.rating ?? 0;
+          return ratingB - ratingA;
+        });
         break;
       case 'seating-low':
         sorted.sort((a, b) => a.seatingCapacity - b.seatingCapacity);
@@ -406,7 +408,7 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
         sorted.sort((a, b) => b.seatingCapacity - a.seatingCapacity);
         break;
     }
-    
+
     return sorted;
   }, [filteredCars, filters?.sortBy]);
 
@@ -422,17 +424,6 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
       return (
         <div className="text-lg text-red-600 font-medium">
           Pricing Unavailable
-        </div>
-      );
-    }
-
-    if (cars[0].pricingReference?.category === 'auto') {
-      // For auto vehicles, show fixed price
-      const autoPrice = Math.round(cars[0].pricing.autoPrice?.oneWay || 0); // Round to whole rupees
-      return (
-        <div className="text-2xl font-bold text-green-600">
-          ₹{autoPrice.toLocaleString()}
-          <span className="text-sm font-normal text-gray-500 ml-1">fixed fare</span>
         </div>
       );
     }
@@ -490,16 +481,16 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
         searchParams: searchParams,
         vehicleType: 'car'
       }));
-      
+
       // Redirect to login page with current location as return URL
-      navigate('/auth', { 
-        state: { 
+      navigate('/auth', {
+        state: {
           returnUrl: window.location.pathname + window.location.search
-        } 
+        }
       });
       return;
     }
-    
+
     // User is authenticated, proceed with booking
     setSelectedCarForCheckout(car);
     setIsCheckoutOpen(true);
@@ -517,20 +508,27 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex flex-col justify-center items-center py-16 px-4 bg-white rounded-2xl border border-gray-100 shadow-xs">
+        <div className="w-10 h-10 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+        <p className="text-xs font-semibold text-gray-700">Finding best cars near you...</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">Searching verified fleet</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="text-center py-12">
-        <div className="text-red-600 text-lg mb-2">⚠️ {error}</div>
-        <button 
+      <div className="text-center py-12 px-4 bg-white rounded-2xl border border-gray-100 shadow-xs">
+        <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <div className="text-gray-900 font-bold text-sm mb-1">{error}</div>
+        <p className="text-xs text-gray-500 mb-4">Please check your connection or try again.</p>
+        <button
           onClick={fetchCars}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors inline-flex items-center gap-1.5"
         >
+          <RotateCcw className="w-3.5 h-3.5" />
           Try Again
         </button>
       </div>
@@ -539,96 +537,94 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
 
   if (cars.length === 0) {
     return (
-      <div className="text-center py-12">
-        <div className="text-gray-600 text-lg mb-2">🚗 No Cars Available</div>
-        <div className="text-gray-500">
-          {searchParams?.fromData ? 'No cars available within 100km of your pickup location.' : 'No approved and active cars found matching your criteria.'}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 text-center space-y-3">
+        <div className="w-16 h-16 bg-gradient-to-br from-green-50 to-emerald-100 text-green-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+          <Car className="w-8 h-8" />
         </div>
-        {searchParams?.fromData && (
-          <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md mx-auto">
-            <p className="text-sm text-blue-800">
-              💡 <strong>Location Tip:</strong> We're showing vehicles within 100km of "{searchParams.fromData.description}". 
-              Try a different pickup location for more options.
-            </p>
-          </div>
+
+        <div>
+          <h3 className="text-base font-bold text-gray-900">No Cars Available</h3>
+          <p className="text-xs text-gray-500 mt-1 max-w-xs mx-auto">
+            {searchParams?.fromData
+              ? `No cars available for that your pickup location.`
+              : `No approved and active cars currently available matching criteria.`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // If cars exist but all filtered out
+  if (sortedCars.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 text-center space-y-4">
+        <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+          <Car className="w-7 h-7" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-gray-900">No Cars Match Your Filters</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Try relaxing or clearing some filters to see all {cars.length} available cars.
+          </p>
+        </div>
+        {onFiltersChange && (
+          <button
+            onClick={() => onFiltersChange({
+              priceRange: { min: 0, max: 10000 },
+              seatingCapacity: [],
+              isAc: [],
+              isSleeper: [],
+              fuelType: [],
+              carBrand: [],
+              carModel: [],
+              busBrand: [],
+              busModel: [],
+              sortBy: ''
+            })}
+            className="py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 mx-auto"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset All Filters
+          </button>
         )}
       </div>
     );
   }
 
-  // Show search location if available
-  if (searchParams?.from && searchParams?.to) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {sortedCars.length} cars found
-            {filters && getTotalActiveFilters(filters) > 0 && (
-              <span className="text-sm font-normal text-gray-500 ml-2">
-                (filtered from {cars.length})
-              </span>
-            )}
-          </h2>
-          <div className="text-sm text-gray-500 flex items-center">
-            <MapPin className="inline h-4 w-4 mr-1" />
-            {searchParams.from} → {searchParams.to}
-          </div>
-        </div>
-        
-        {/* Cars List */}
-        <div className="space-y-4">
-          {sortedCars.map((car) => (
-            <CarCard key={car._id} car={car} searchParams={searchParams} onViewDetails={handleViewDetails} onBookNow={handleBookNow} />
-          ))}
-        </div>
-
-        {/* Car Details Modal */}
-        <VehicleDetailsModal 
-          vehicle={selectedCar} 
-          isOpen={isModalOpen} 
-          onClose={closeModal} 
-        />
-
-        {/* Checkout Modal */}
-        <Checkout
-          isOpen={isCheckoutOpen}
-          onClose={closeCheckout}
-          vehicle={selectedCarForCheckout}
-          bookingData={searchParams}
-        />
-      </div>
-    );
-  }
-
-  // Default view without search params
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">
-          {sortedCars.length} cars found
-          {filters && getTotalActiveFilters(filters) > 0 && (
-            <span className="text-sm font-normal text-gray-500 ml-2">
-              (filtered from {cars.length})
-            </span>
-          )}
-        </h2>
-        <div className="text-sm text-gray-500">
-          {filters && getTotalActiveFilters(filters) > 0 ? 'Showing filtered results' : 'Showing all available cars'}
-        </div>
+    <div className="space-y-3">
+      {/* Header Summary Strip */}
+      <div className="flex items-center justify-between px-1 text-xs text-gray-500 font-medium">
+        <span>
+          <strong className="text-gray-900">{sortedCars.length}</strong> {sortedCars.length === 1 ? 'car' : 'cars'} available
+          {filters && getTotalActiveFilters(filters) > 0 && ` (filtered from ${cars.length})`}
+        </span>
+        {filters && getTotalActiveFilters(filters) > 0 && (
+          <span className="text-blue-600 font-semibold">{getTotalActiveFilters(filters)} filter(s) active</span>
+        )}
       </div>
-      
+
       {/* Cars List */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {sortedCars.map((car) => (
           <CarCard key={car._id} car={car} searchParams={searchParams} onViewDetails={handleViewDetails} onBookNow={handleBookNow} />
         ))}
       </div>
 
       {/* Car Details Modal */}
-      <VehicleDetailsModal 
-        vehicle={selectedCar} 
-        isOpen={isModalOpen} 
-        onClose={closeModal} 
+      <VehicleDetailsModal
+        vehicle={selectedCar}
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        onBookNow={handleBookNow}
+      />
+
+      {/* Checkout Modal */}
+      <Checkout
+        isOpen={isCheckoutOpen}
+        onClose={closeCheckout}
+        vehicle={selectedCarForCheckout}
+        bookingData={searchParams}
       />
     </div>
   );
@@ -637,20 +633,20 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
 // Helper function to get total active filters
 const getTotalActiveFilters = (filters?: VehicleFilters) => {
   if (!filters) return 0;
-  
+
   let count = 0;
-  if (filters.seatingCapacity.length > 0) count++;
-  if (filters.isAc.length > 0) count++;
-  if (filters.isSleeper.length > 0) count++;
-  if (filters.fuelType.length > 0) count++;
-  if (filters.carBrand.length > 0) count++;
-  if (filters.carModel.length > 0) count++;
+  if (filters.seatingCapacity?.length > 0) count++;
+  if (filters.isAc?.length > 0) count++;
+  if (filters.isSleeper?.length > 0) count++;
+  if (filters.fuelType?.length > 0) count++;
+  if (filters.carBrand?.length > 0) count++;
+  if (filters.carModel?.length > 0) count++;
   if (filters.sortBy) count++;
   return count;
 };
 
-const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: { 
-  car: Car; 
+const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
+  car: Car;
   searchParams?: {
     from?: string;
     to?: string;
@@ -662,8 +658,8 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
     returnDate?: string;
     passengers?: number;
   };
-  onViewDetails: (car: Car) => void; 
-  onBookNow: (car: Car) => void; 
+  onViewDetails: (car: Car) => void;
+  onBookNow: (car: Car) => void;
 }) => {
   const [isImageLoading, setIsImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
@@ -704,25 +700,6 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
       );
     }
 
-    // For auto vehicles, show fixed price
-    if (car.pricingReference?.category === 'auto') {
-      const tripType = searchParams?.serviceType === 'roundTrip' ? 'return' : 'one-way';
-      const autoPrice = tripType === 'return' 
-        ? (car.pricing.autoPrice?.return || car.pricing.autoPrice?.oneWay || 0)
-        : (car.pricing.autoPrice?.oneWay || 0);
-      
-      const roundedPrice = Math.round(autoPrice); // Round to whole rupees
-      
-      return (
-        <div className="text-2xl font-bold text-green-600">
-          ₹{roundedPrice.toLocaleString()}
-          <span className="text-sm font-normal text-gray-500 ml-1">
-            {tripType === 'return' ? 'Return fare' : 'One-way fare'}
-          </span>
-        </div>
-      );
-    }
-
     // For car vehicles, show distance-based pricing
     if (car.pricing.distancePricing) {
       // Determine trip type - handle both "oneWay" and "one-way" formats
@@ -732,18 +709,18 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
       } else if (searchParams?.serviceType === 'oneWay') {
         tripType = 'one-way';
       }
-      
+
       // Try multiple possible trip type keys
       let pricing = car.pricing.distancePricing[tripType];
       if (!pricing) {
         // Fallback to other possible keys
-        pricing = car.pricing.distancePricing['oneWay'] || 
-                  car.pricing.distancePricing['one-way'] || 
-                  car.pricing.distancePricing['oneway'] ||
-                  car.pricing.distancePricing['return'] ||
-                  Object.values(car.pricing.distancePricing)[0]; // Use first available
+        pricing = car.pricing.distancePricing['oneWay'] ||
+          car.pricing.distancePricing['one-way'] ||
+          car.pricing.distancePricing['oneway'] ||
+          car.pricing.distancePricing['return'] ||
+          Object.values(car.pricing.distancePricing)[0]; // Use first available
       }
-      
+
       if (!pricing) {
         return (
           <div className="text-lg text-red-600 font-medium">
@@ -751,15 +728,15 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
           </div>
         );
       }
-      
+
       // Check if we have search parameters to calculate distance
       if (searchParams?.fromData && searchParams?.toData) {
-        const distance = calculateDistance(searchParams.fromData, searchParams.toData);
-        
+        const distance = searchParams.distanceKm || calculateDistance(searchParams.fromData, searchParams.toData);
+
         // Find the best available rate per km
         let ratePerKm = 0;
         let rateLabel = '';
-        
+
         // Try to find the appropriate rate based on distance using new 6-tier structure
         // Handle both old 3-tier and new 6-tier pricing structures
         if (distance <= 50 && pricing['50km']) {
@@ -796,33 +773,32 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
           ratePerKm = pricing['50km'];
           rateLabel = '50km rate';
         }
-        
+
         if (ratePerKm > 0) {
-          // Calculate total price: distance × rate per km
-          const totalPrice = Math.round(ratePerKm * distance); // Round to whole rupees
-          
+          // Calculate total price: distance × 2 × rate per km (both ways / aane aur jane dono ka)
+          const totalPrice = Math.round(ratePerKm * distance * 2); // Round to whole rupees
+
           return (
-            <div className="text-2xl font-bold text-green-600">
-              ₹{totalPrice.toLocaleString()}
-              <div className="text-sm font-normal text-gray-500">
-                {distance.toFixed(1)} km trip (₹{ratePerKm}/km)
-              </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-base sm:text-lg font-bold text-gray-900">
+                ₹{totalPrice.toLocaleString()}
+              </span>
             </div>
           );
         }
       } else {
         // Missing coordinates - show helpful message
         return (
-          <div className="text-lg text-amber-600 font-medium">
-            Select locations to see distance-based pricing
+          <div className="text-xs text-amber-600 font-medium">
+            Select route to calculate fare
           </div>
         );
       }
-      
+
       // Fallback: show best available rate per km
       let bestRate = 0;
       let rateLabel = 'Base rate';
-      
+
       if (pricing['50km']) {
         bestRate = pricing['50km'];
         rateLabel = '50km rate';
@@ -833,22 +809,24 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
         bestRate = pricing['150km'];
         rateLabel = '150km rate';
       }
-      
+
       if (bestRate > 0) {
         return (
-          <div className="text-2xl font-bold text-green-600">
-            ₹{bestRate.toLocaleString()}
-            <div className="text-sm font-normal text-gray-600">
-              {rateLabel} per km
-            </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base sm:text-lg font-bold text-gray-900">
+              ₹{bestRate.toLocaleString()}
+            </span>
+            <span className="text-[10px] sm:text-xs text-gray-500 font-normal">
+              {rateLabel} / km
+            </span>
           </div>
         );
       }
     }
 
     return (
-      <div className="text-lg text-red-600 font-medium">
-        Pricing structure incomplete
+      <div className="text-xs text-red-500 font-medium">
+        Price Unavailable
       </div>
     );
   };
@@ -874,210 +852,120 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden border border-gray-200">
-      {/* Desktop Layout - Horizontal */}
-      <div className="hidden md:flex flex-row items-stretch">
-        {/* Image Section - Left Side */}
-        <div className="relative w-80 h-64 bg-gray-100 flex-shrink-0 overflow-hidden">
+    <div
+      onClick={() => onViewDetails(car)}
+      className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-3 sm:p-4 group cursor-pointer hover:border-blue-200"
+    >
+      <div className="flex flex-row items-center gap-3 sm:gap-4">
+        {/* Left Side: Vehicle Image */}
+        <div className="relative w-28 sm:w-36 md:w-44 h-24 sm:h-28 md:h-32 bg-gray-50/80 rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center p-1.5 border border-gray-100">
           {isImageLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-100/70 z-10">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
             </div>
           )}
-          
+
           {!imageError && primaryImage ? (
             <img
               src={primaryImage}
-              alt={`${car.brand} ${car.pricingReference?.vehicleModel || ''} car`}
-              className={`w-full h-full object-contain transition-all duration-300 ${
-                isImageLoading ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
-              }`}
+              alt={`${car.brand} car`}
+              className={`w-full h-full object-contain transition-transform duration-300 group-hover:scale-105 ${isImageLoading ? 'opacity-0' : 'opacity-100'
+                }`}
               onLoad={handleImageLoad}
               onError={handleImageError}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-              <Car className="h-16 w-16 text-gray-400 mb-2" />
-              <span className="text-xs text-gray-500 text-center px-2">No Image Available</span>
-            </div>
-          )}
-          
-          {/* Status Badge */}
-          <div className="absolute top-3 right-3">
-            <span className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full shadow-sm">
-              Available
-            </span>
-          </div>
-
-          {/* Rating Badge */}
-          {car.rating && (
-            <div className="absolute bottom-3 left-3">
-              <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full shadow-sm flex items-center">
-                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
-                {car.rating.toFixed(1)}
-              </span>
+            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+              <Car className="h-10 w-10 text-gray-300 mb-1" />
+              <span className="text-[10px] text-gray-400 text-center">No Image</span>
             </div>
           )}
         </div>
 
-        {/* Content Section - Middle */}
-        <div className="flex-1 p-6 flex flex-col justify-center">
-          {/* Vehicle Info */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xl font-bold text-gray-900">
-                {car.brand} {car.pricingReference?.vehicleModel || ''}
+        {/* Right Side: Details & Actions */}
+        <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+          {/* Header Row: Title & Status */}
+          <div>
+            <div className="flex items-center justify-between gap-1.5">
+              <h3 className="text-sm sm:text-base font-bold text-gray-900 truncate">
+                {(() => {
+                  const brand = car.brand?.trim() || '';
+                  const model = car.pricingReference?.vehicleModel?.trim() || '';
+                  if (!model) return brand;
+                  if (!brand) return model;
+                  if (brand.toLowerCase() === model.toLowerCase() || brand.toLowerCase().includes(model.toLowerCase())) {
+                    return brand;
+                  }
+                  if (model.toLowerCase().includes(brand.toLowerCase())) {
+                    return model;
+                  }
+                  return `${brand} ${model}`;
+                })()}
               </h3>
+              <span className="bg-emerald-500 text-white text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-xs flex-shrink-0">
+                Available
+              </span>
             </div>
-            
-            <div className="text-sm text-gray-700 mb-2">
-              {car.isAc ? 'AC' : 'Non-AC'} • {car.fuelType}
+
+            {/* Price Row */}
+            <div className="mt-0.5">
+              {getPriceDisplay()}
             </div>
-            <div className="flex items-center text-sm text-gray-600">
-              <Users className="h-4 w-4 mr-1" />
-              <span>{car.seatingCapacity} Seater</span>
+
+            {/* Rating Row */}
+            {(() => {
+              const ratingValue = car.ratings?.average ?? car.statistics?.averageRating ?? car.rating ?? car.driver?.rating ?? 0;
+              const reviewCount = car.ratings?.count ?? car.reviewCount ?? 0;
+              const tripsCount = car.statistics?.totalTrips ?? car.totalTrips ?? 0;
+
+              return (
+                <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-600">
+                  <span className="flex items-center text-amber-500 font-bold">
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 mr-0.5" />
+                    {ratingValue > 0 ? ratingValue.toFixed(1) : 'New'}
+                  </span>
+                  <span className="text-gray-400 text-[11px]">•</span>
+                  <span className="text-gray-500 text-[11px]">
+                    {reviewCount > 0
+                      ? `(${reviewCount} ${reviewCount === 1 ? 'review' : 'reviews'})`
+                      : tripsCount > 0
+                        ? `(${tripsCount} ${tripsCount === 1 ? 'trip' : 'trips'})`
+                        : '(No reviews yet)'}
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Badges / Specs */}
+            <div className="flex flex-wrap items-center gap-1 mt-1.5">
+              <span className="bg-gray-100 text-gray-700 text-[10px] sm:text-[11px] px-2 py-0.5 rounded-md font-medium">
+                {car.isAc ? 'AC' : 'Non-AC'}
+              </span>
+              <span className="bg-gray-100 text-gray-700 text-[10px] sm:text-[11px] px-2 py-0.5 rounded-md font-medium capitalize">
+                {car.fuelType}
+              </span>
+              <span className="bg-gray-100 text-gray-700 text-[10px] sm:text-[11px] px-2 py-0.5 rounded-md font-medium">
+                {car.seatingCapacity} Seater
+              </span>
             </div>
+
+            {/* Location (single line) */}
             {car.vehicleLocation?.address && (
-              <div className="flex items-start text-sm text-gray-600 mt-1">
-                <MapPin className="h-4 w-4 mr-1 mt-0.5 flex-shrink-0" />
-                <span className="break-words leading-relaxed">{car.vehicleLocation.address}</span>
+              <div className="flex items-center gap-1 mt-1 text-[11px] text-gray-400 truncate">
+                <MapPin className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{car.vehicleLocation.address}</span>
               </div>
             )}
           </div>
 
-          {/* Amenities */}
-          {getAmenitiesText() && (
-            <div className="mb-4">
-              <div className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">
-                ✨ {getAmenitiesText()}
-              </div>
-            </div>
-          )}
-
-
-        </div>
-
-        {/* Pricing & Actions Section - Right Side */}
-        <div className="w-48 p-6 flex flex-col justify-center items-end flex-shrink-0">
-          {/* Pricing */}
-          <div className="mb-4 text-right">
-            <div className="text-xs text-gray-500 mb-1">Book at only</div>
-            <div className="text-xl font-bold text-gray-900">
-              {getPriceDisplay()}
-            </div>
-          </div>
-          
-          {/* Action Buttons */}
-          <div className="flex flex-col space-y-3">
-            <button 
-              className="flex items-center justify-center bg-white text-blue-600 border border-blue-600 py-2 px-3 rounded-lg hover:bg-blue-50 transition-colors font-medium text-sm w-full"
-              onClick={() => onViewDetails(car)}
-            >
-              <span className="mr-1">👁️</span>
-              View Details
-            </button>
-            <button 
-              className="flex items-center justify-center bg-blue-600 text-white py-2 px-3 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm w-full"
-              onClick={() => onBookNow(car)}
-            >
-              Book Now
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Layout - Vertical */}
-      <div className="md:hidden p-4 space-y-4">
-        {/* Top Section - Vehicle Info */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-gray-900">
-              {car.brand} {car.pricingReference?.vehicleModel || ''}
-            </h3>
-            <span className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-              Available
-            </span>
-          </div>
-          <div className="text-sm text-gray-700">
-            {car.isAc ? 'AC' : 'Non-AC'} • {car.fuelType}
-          </div>
-          <div className="flex items-center text-sm text-gray-600">
-            <Users className="h-4 w-4 mr-1" />
-            <span>{car.seatingCapacity} Seater</span>
-          </div>
-          {car.vehicleLocation?.address && (
-            <div className="flex items-center text-sm text-gray-600">
-              <MapPin className="h-4 w-4 mr-1" />
-              <span className="truncate">{car.vehicleLocation.address}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Middle Section - Vehicle Image */}
-        <div className="relative w-full h-56 bg-gray-100 rounded-lg overflow-hidden">
-          {isImageLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            </div>
-          )}
-          
-          {!imageError && primaryImage ? (
-            <img
-              src={primaryImage}
-              alt={`${car.brand} ${car.pricingReference?.vehicleModel || ''} car`}
-              className={`w-full h-full object-contain transition-all duration-300 ${
-                isImageLoading ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
-              }`}
-              onLoad={handleImageLoad}
-              onError={handleImageError}
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-              <Car className="h-20 w-20 text-gray-400 mb-3" />
-              <span className="text-sm text-gray-500 text-center px-4">No Image Available</span>
-            </div>
-          )}
-
-          {/* Rating Badge for Mobile */}
-          {car.rating && (
-            <div className="absolute bottom-3 left-3">
-              <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full shadow-sm flex items-center">
-                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
-                {car.rating.toFixed(1)}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Amenities for Mobile */}
-        {getAmenitiesText() && (
-          <div className="text-sm text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">
-            ✨ {getAmenitiesText()}
-          </div>
-        )}
-
-
-
-        {/* Bottom Section - Pricing & Actions */}
-        <div className="space-y-3">
-          <div className="text-center">
-            <div className="text-xs text-gray-500 mb-1">Book at only</div>
-            <div className="text-2xl font-bold text-gray-900">
-              {getPriceDisplay()}
-            </div>
-          </div>
-          
-          <div className="flex flex-col space-y-2">
-            <button 
-              className="flex items-center justify-center bg-white text-blue-600 border border-blue-600 py-3 px-4 rounded-lg hover:bg-blue-50 transition-colors font-medium text-sm"
-              onClick={() => onViewDetails(car)}
-            >
-              <span className="mr-2">👁️</span>
-              View Details
-            </button>
-            <button 
-              className="flex items-center justify-center bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
-              onClick={() => onBookNow(car)}
+          {/* Bottom Actions Row */}
+          <div className="mt-2 pt-1.5 border-t border-gray-100">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onBookNow(car);
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-semibold text-xs sm:text-sm py-1.5 sm:py-2 px-3 rounded-xl transition-all shadow-sm hover:shadow text-center"
             >
               Book Now
             </button>

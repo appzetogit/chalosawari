@@ -102,11 +102,6 @@ class RazorpayService {
    */
   static verifyPaymentSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature) {
     try {
-      console.log('=== SIGNATURE VERIFICATION START ===');
-      console.log('Order ID:', razorpayOrderId);
-      console.log('Payment ID:', razorpayPaymentId);
-      console.log('Received Signature:', razorpaySignature);
-      console.log('Secret Key exists:', !!process.env.RAZORPAY_KEY_SECRET);
       
       // Validate input parameters
       if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
@@ -120,16 +115,12 @@ class RazorpayService {
       }
       
       const body = razorpayOrderId + '|' + razorpayPaymentId;
-      console.log('Body to hash:', body);
       
       const expectedSignature = crypto
         .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
         .update(body.toString())
         .digest('hex');
       
-      console.log('Expected Signature:', expectedSignature);
-      console.log('Signatures match:', expectedSignature === razorpaySignature);
-      console.log('=== SIGNATURE VERIFICATION END ===');
       
       return expectedSignature === razorpaySignature;
     } catch (error) {

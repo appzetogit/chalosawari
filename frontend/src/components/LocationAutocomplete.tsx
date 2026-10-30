@@ -60,7 +60,7 @@ const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
               return;
             } else {
               // Check if API key is missing
-              const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+              const apiKey = googleMapsService.getApiKey();
               if (!apiKey || apiKey === 'your_actual_api_key_here') {
                 setError('Location autocomplete is disabled. You can still type your location manually.');
                 return;
@@ -69,7 +69,6 @@ const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
             }
           }
         } catch (err: any) {
-          console.error(`LocationAutocomplete: Attempt ${retryCount + 1} failed:`, err);
           retryCount++;
           
           if (retryCount < maxRetries) {
@@ -78,7 +77,7 @@ const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
             return attemptInitialization();
           } else {
             // Provide more specific error message
-            const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+            const apiKey = googleMapsService.getApiKey();
             if (!apiKey || apiKey === 'your_actual_api_key_here') {
               setError('Location autocomplete is disabled. You can still type your location manually.');
             } else if (err.message && err.message.includes('API key')) {
@@ -361,11 +360,11 @@ const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
       // Try multiple geocoding strategies for better results
       const strategies = [
         // Strategy 1: Try with specific result types for detailed addresses
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&result_type=street_address|route|premise|subpremise|neighborhood|sublocality|locality|administrative_area_level_1|administrative_area_level_2|country`,
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleMapsService.getApiKey()}&result_type=street_address|route|premise|subpremise|neighborhood|sublocality|locality|administrative_area_level_1|administrative_area_level_2|country`,
         // Strategy 2: Try without result_type restriction for broader results
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}`,
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleMapsService.getApiKey()}`,
         // Strategy 3: Try with English language for English results
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&language=en&region=IN`
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleMapsService.getApiKey()}&language=en&region=IN`
       ];
 
       let bestResult = null;
@@ -479,7 +478,7 @@ const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
           }}
           placeholder={placeholder}
           className={cn(
-            "pl-12 h-14 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-base hover:border-blue-300 hover:shadow-md",
+            "pl-12 h-14 border border-gray-200 rounded-xl focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-gray-300 transition-colors text-base hover:border-gray-300 shadow-none",
             showGetLocation ? "pr-20" : "pr-4", // Add right padding when GPS button is shown
             className
           )}

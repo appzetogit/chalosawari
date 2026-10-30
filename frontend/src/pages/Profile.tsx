@@ -1,41 +1,45 @@
 import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
 import { Avatar } from "../components/ui/avatar";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Switch } from "../components/ui/switch";
-import { 
-  User, 
-  Home, 
-  List, 
-  HelpCircle, 
-  Settings, 
-  LogOut, 
-  Phone, 
-  Mail,
+import {
+  User,
+  LogOut,
   ChevronRight,
-  Shield,
   Bell,
   Camera,
-  Edit3
+  ArrowLeft,
+  CheckCircle2,
+  Ticket,
+  FileText,
+  ShieldCheck,
+  RotateCcw,
+  HelpCircle,
+  Settings,
+  Download,
+  Smartphone,
+  Loader2
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useUserAuth } from "../contexts/UserAuthContext";
 import { useToast } from "../hooks/use-toast";
 import { useIsMobile } from "../hooks/use-mobile";
-import TopNavigation from "../components/TopNavigation";
+import { resolveImageUrl } from "../utils/imageUrl";
 import UserBottomNavigation from "../components/UserBottomNavigation";
+
+type ProfileView = 'main' | 'personal' | 'notifications';
 
 const Profile = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, isLoading, logout: contextLogout, updateProfile } = useUserAuth();
+  const { user, isAuthenticated, isLoading, logout: contextLogout, updateProfile, updateAvatar } = useUserAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile() || false;
-  
-  console.log('Profile component rendering:', { isAuthenticated, isLoading, isMobile });
-  
+
+  const [currentView, setCurrentView] = useState<ProfileView>('main');
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
   const [userProfile, setUserProfile] = useState({
     name: "",
     email: "",
@@ -52,24 +56,22 @@ const Profile = () => {
     location: "Indore, Madhya Pradesh"
   });
 
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
-  const [activeModal, setActiveModal] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // Update user profile when user data changes
   useEffect(() => {
     if (user) {
-      console.log('Profile: User data received:', user);
       const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'No name provided';
       setUserProfile({
         name: fullName,
         email: user.email || "No email provided",
         phone: user.phone || "No phone provided",
-        location: user.location || "Indore, Madhya Pradesh", // Use user's location or default
-        avatar: user.profilePicture || "https://github.com/shadcn.png"
+        location: user.location || "Indore, Madhya Pradesh",
+        avatar: user.profilePicture
+          ? resolveImageUrl(user.profilePicture)
+          : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=250&auto=format&fit=crop"
       });
-      
+
       // Also update edit profile with current user data
       setEditProfile({
         firstName: user.firstName || "",
@@ -78,8 +80,6 @@ const Profile = () => {
         phone: user.phone || "",
         location: user.location || "Indore, Madhya Pradesh"
       });
-    } else {
-      console.log('Profile: No user data available');
     }
   }, [user]);
 
@@ -92,78 +92,97 @@ const Profile = () => {
     navigate('/');
   };
 
-  const handleSaveProfile = async () => {
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/');
+    }
+  };
+
+  const handleOpenView = (view: ProfileView) => {
+    if (view === 'personal' && user) {
+      setEditProfile({
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        location: user.location || "Indore, Madhya Pradesh"
+      });
+    }
+    setCurrentView(view);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveProfile = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     try {
       setIsSaving(true);
-      
+
       // Validate required fields
       if (!editProfile.firstName?.trim()) {
         toast({
-          title: "Error",
-          description: "First name is required",
+          title: "First Name Required",
+          description: "Please enter your first name.",
           variant: "destructive",
         });
         return;
       }
-      
+
       if (!editProfile.lastName?.trim()) {
         toast({
-          title: "Error",
-          description: "Last name is required",
+          title: "Last Name Required",
+          description: "Please enter your last name.",
           variant: "destructive",
         });
         return;
       }
-      
+
       if (!editProfile.phone?.trim()) {
         toast({
-          title: "Error",
-          description: "Phone number is required",
+          title: "Phone Number Required",
+          description: "Please enter your mobile number.",
           variant: "destructive",
         });
         return;
       }
-      
+
       // Prepare data for API call
       const profileData: any = {
         firstName: editProfile.firstName.trim(),
         lastName: editProfile.lastName.trim(),
         phone: editProfile.phone.trim()
       };
-      
-      // Add email only if it's provided and valid
+
       if (editProfile.email?.trim()) {
         profileData.email = editProfile.email.trim();
       }
-      
-      // Add location if it's provided
+
       if (editProfile.location?.trim()) {
         profileData.location = editProfile.location.trim();
       }
-      
-      // Call the updateProfile function from context
+
       await updateProfile(profileData);
-      
-      // Update local state
+
+      const fullName = `${editProfile.firstName.trim()} ${editProfile.lastName.trim()}`;
       setUserProfile({
         ...userProfile,
-        name: `${editProfile.firstName.trim()} ${editProfile.lastName.trim()}`,
+        name: fullName,
         email: editProfile.email?.trim() || "No email provided",
         phone: editProfile.phone.trim(),
         location: editProfile.location?.trim() || "Indore, Madhya Pradesh"
       });
-      
-      setIsEditModalOpen(false);
-      
+
+      setCurrentView('main');
+
       toast({
-        title: "Success",
-        description: "Profile updated successfully!",
-        variant: "default",
+        title: "Profile Updated",
+        description: "Your profile changes have been saved successfully.",
       });
     } catch (error: any) {
       console.error('Profile update error:', error);
       toast({
-        title: "Error",
+        title: "Update Failed",
         description: error.message || "Failed to update profile. Please try again.",
         variant: "destructive",
       });
@@ -172,287 +191,119 @@ const Profile = () => {
     }
   };
 
-  const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setUserProfile({
-          ...userProfile,
-          avatar: e.target?.result as string
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-    setIsPhotoModalOpen(false);
-  };
+    if (!file) return;
 
-  const handleModalClose = () => {
-    setActiveModal(null);
-  };
-
-  const handleEditProfileOpen = () => {
-    // Reset edit profile with current user data when opening
-    if (user) {
-      setEditProfile({
-        firstName: user.firstName || "",
-        lastName: user.lastName || "",
-        email: user.email || "",
-        phone: user.phone || "",
-        location: "Indore, Madhya Pradesh"
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid File Type",
+        description: "Please select an image file (JPEG, PNG, WEBP, GIF).",
+        variant: "destructive",
       });
+      return;
     }
-    setIsEditModalOpen(true);
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Image size must be less than 5MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsUploadingPhoto(true);
+
+      // Show immediate local preview
+      const localPreviewUrl = URL.createObjectURL(file);
+      setUserProfile(prev => ({
+        ...prev,
+        avatar: localPreviewUrl
+      }));
+
+      const uploadedUrl = await updateAvatar(file);
+      const finalAvatarUrl = resolveImageUrl(uploadedUrl);
+
+      setUserProfile(prev => ({
+        ...prev,
+        avatar: finalAvatarUrl || localPreviewUrl
+      }));
+
+      toast({
+        title: "Photo Updated",
+        description: "Your profile photo has been uploaded and saved.",
+      });
+    } catch (error: any) {
+      console.error('Avatar upload error:', error);
+      setUserProfile(prev => ({
+        ...prev,
+        avatar: user?.profilePicture
+          ? resolveImageUrl(user.profilePicture)
+          : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=250&auto=format&fit=crop"
+      }));
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Failed to upload photo. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPhoto(false);
+      event.target.value = '';
+    }
   };
 
-  const handlePersonalModalOpen = (modalType: string) => {
-    if (modalType === "personal") {
-      // Reset edit profile with current user data when opening personal modal
-      if (user) {
-        setEditProfile({
-          firstName: user.firstName || "",
-          lastName: user.lastName || "",
-          email: user.email || "",
-          phone: user.phone || "",
-          location: "Indore, Madhya Pradesh"
-        });
-      }
-    }
-    setActiveModal(modalType);
-  };
-
-  const profileOptions = [
+  // Menu Groups
+  const generalGroup = [
     {
       id: 1,
       title: "Personal Information",
       icon: User,
-      description: "Update your personal details",
-      modal: "personal"
+      view: "personal" as ProfileView
     },
     {
       id: 2,
-      title: "Notifications",
-      icon: Bell,
-      description: "Manage notification preferences",
-      modal: "notifications"
+      title: "My Bookings",
+      icon: Ticket,
+      href: "/bookings"
     },
     {
       id: 3,
-      title: "Privacy & Security",
-      icon: Shield,
-      description: "Account security settings",
-      modal: "privacy"
-    },
-    {
-      id: 4,
-      title: "Settings",
-      icon: Settings,
-      description: "App preferences and settings",
-      modal: "settings"
+      title: "Notifications",
+      icon: Bell,
+      view: "notifications" as ProfileView
     }
   ];
 
-  const renderModalContent = (modalType: string) => {
-    switch (modalType) {
-      case "personal":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="modal-firstname">First Name *</Label>
-              <Input
-                id="modal-firstname"
-                value={editProfile.firstName}
-                onChange={(e) => setEditProfile({...editProfile, firstName: e.target.value})}
-                placeholder="Enter your first name"
-                required
-              />
-              <p className="text-xs text-muted-foreground">First name is required</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="modal-lastname">Last Name *</Label>
-              <Input
-                id="modal-lastname"
-                value={editProfile.lastName}
-                onChange={(e) => setEditProfile({...editProfile, lastName: e.target.value})}
-                placeholder="Enter your last name"
-                required
-              />
-              <p className="text-xs text-muted-foreground">Last name is required</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="modal-email">Email (Optional)</Label>
-              <Input
-                id="modal-email"
-                type="email"
-                value={editProfile.email}
-                onChange={(e) => setEditProfile({...editProfile, email: e.target.value})}
-                placeholder="Enter your email address"
-              />
-              <p className="text-xs text-muted-foreground">Email is optional but recommended for notifications</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="modal-phone">Phone Number *</Label>
-              <Input
-                id="modal-phone"
-                value={editProfile.phone}
-                onChange={(e) => setEditProfile({...editProfile, phone: e.target.value})}
-                placeholder="Enter your 10-digit phone number"
-                required
-              />
-              <p className="text-xs text-muted-foreground">Phone number is required for account verification</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="modal-location">Location</Label>
-              <Input
-                id="modal-location"
-                value={editProfile.location}
-                onChange={(e) => setEditProfile({...editProfile, location: e.target.value})}
-                placeholder="Enter your location"
-              />
-            </div>
-            <div className="flex space-x-2 pt-4">
-              <Button variant="outline" className="flex-1" onClick={handleModalClose}>
-                Cancel
-              </Button>
-              <Button className="flex-1" onClick={handleSaveProfile} disabled={isSaving}>
-                {isSaving ? "Saving..." : "Save Changes"}
-              </Button>
-            </div>
-          </div>
-        );
-
-
-
-      case "notifications":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Push Notifications</p>
-                  <p className="text-sm text-muted-foreground">Receive notifications on your device</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Email Notifications</p>
-                  <p className="text-sm text-muted-foreground">Receive booking confirmations via email</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">SMS Notifications</p>
-                  <p className="text-sm text-muted-foreground">Receive updates via SMS</p>
-                </div>
-                <Switch />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Promotional Offers</p>
-                  <p className="text-sm text-muted-foreground">Receive special offers and discounts</p>
-                </div>
-                <Switch />
-              </div>
-            </div>
-            <Button variant="outline" className="w-full" onClick={handleModalClose}>
-              Save Preferences
-            </Button>
-          </div>
-        );
-
-      case "privacy":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Two-Factor Authentication</p>
-                  <p className="text-sm text-muted-foreground">Add an extra layer of security</p>
-                </div>
-                <Button variant="outline" size="sm">Enable</Button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Biometric Login</p>
-                  <p className="text-sm text-muted-foreground">Use fingerprint or face ID</p>
-                </div>
-                <Switch />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Location Services</p>
-                  <p className="text-sm text-muted-foreground">Allow app to access your location</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Data Sharing</p>
-                  <p className="text-sm text-muted-foreground">Share usage data for improvements</p>
-                </div>
-                <Switch />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Button variant="outline" className="w-full">
-                Change Password
-              </Button>
-              <Button variant="outline" className="w-full">
-                Privacy Policy
-              </Button>
-            </div>
-            <Button variant="outline" className="w-full" onClick={handleModalClose}>
-              Close
-            </Button>
-          </div>
-        );
-
-      case "settings":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Auto-Login</p>
-                  <p className="text-sm text-muted-foreground">Stay logged in</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Sound Effects</p>
-                  <p className="text-sm text-muted-foreground">Play sounds for notifications</p>
-                </div>
-                <Switch />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Haptic Feedback</p>
-                  <p className="text-sm text-muted-foreground">Vibrate on interactions</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Button variant="outline" className="w-full">
-                Clear Cache
-              </Button>
-              <Button variant="outline" className="w-full">
-                About App
-              </Button>
-            </div>
-            <Button variant="outline" className="w-full" onClick={handleModalClose}>
-              Close
-            </Button>
-          </div>
-        );
-
-      default:
-        return null;
+  const policyGroup = [
+    {
+      id: 4,
+      title: "Terms & Conditions",
+      icon: FileText,
+      href: "/terms-conditions"
+    },
+    {
+      id: 5,
+      title: "Privacy Policy",
+      icon: ShieldCheck,
+      href: "/privacy-policy"
+    },
+    {
+      id: 6,
+      title: "Refund Policy",
+      icon: RotateCcw,
+      href: "/refund-policy"
+    },
+    {
+      id: 7,
+      title: "FAQs & Help Support",
+      icon: HelpCircle,
+      href: "/help"
     }
-  };
+  ];
 
   // Show loading while checking authentication
   if (isLoading) {
@@ -467,275 +318,454 @@ const Profile = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <TopNavigation />
+    <div className="min-h-screen bg-white flex flex-col justify-between font-sans antialiased">
       {!isAuthenticated ? (
-        // Login Screen
-        <div className="bg-white">
-          <div className="flex items-center justify-center min-h-screen px-4 sm:px-6">
-            <div className="text-center space-y-6 sm:space-y-8 max-w-md mx-auto w-full">
-              {/* Title */}
-              <h1 className="text-2xl sm:text-3xl font-bold text-black leading-tight px-2">
-                Log in to manage<br />your bookings
-              </h1>
-              
-              {/* Login Button */}
-              <Button 
-                className="w-full bg-red-600 hover:bg-red-700 text-white text-base sm:text-lg font-semibold py-3 sm:py-4 rounded-lg"
-                onClick={handleLogin}
-              >
-                Log in
-              </Button>
-              
-              {/* Sign Up Link */}
-              <p className="text-sm text-gray-600 px-2">
-                Don't have an account? <span className="underline cursor-pointer text-black" onClick={handleLogin}>Sign up</span>
-              </p>
-            </div>
+        // Unauthenticated Login Screen
+        <div className="bg-white min-h-screen flex items-center justify-center px-4 sm:px-6">
+          <div className="text-center space-y-6 sm:space-y-8 max-w-md mx-auto w-full">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 leading-tight">
+              Log in to manage<br />your bookings
+            </h1>
+            <Button
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-base sm:text-lg font-semibold py-3 sm:py-4 rounded-xl shadow-md"
+              onClick={handleLogin}
+            >
+              Log in
+            </Button>
+            <p className="text-sm text-gray-600">
+              Don't have an account?{" "}
+              <span className="underline cursor-pointer font-semibold text-blue-600" onClick={handleLogin}>
+                Sign up
+              </span>
+            </p>
           </div>
         </div>
       ) : (
-        // Profile Management Screen
         <>
-          {/* Header */}
-          <div className="bg-primary text-primary-foreground p-4 sm:p-6">
-            <h1 className="text-lg sm:text-xl font-semibold">My Profile</h1>
-          </div>
+          {/* ========================================================================= */}
+          {/* VIEW 1: MAIN PROFILE VIEW */}
+          {/* ========================================================================= */}
+          {currentView === 'main' && (
+            <div className="flex-1 flex flex-col bg-white">
+              {/* Clean Modern Header */}
+              <div className="bg-white text-gray-900 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+                  aria-label="Back"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-700" />
+                </button>
+                <h1 className="text-lg font-bold text-gray-900 tracking-tight">
+                  My Profile
+                </h1>
+                <div className="w-8" />
+              </div>
 
-          {/* Content */}
-          <div className="p-3 sm:p-4 space-y-4 sm:space-y-6 pb-24 md:pb-6">
-            {/* Profile Card */}
-            <Card className="p-4 sm:p-6 border border-border">
-              <div className={`flex ${isMobile ? 'flex-col space-y-4' : 'items-center space-x-4'}`}>
-                <div className="relative flex justify-center sm:justify-start">
-                  <Avatar className="w-16 h-16 sm:w-20 sm:h-20">
-                    <img src={userProfile.avatar} alt={userProfile.name} />
-                  </Avatar>
-                  <Dialog open={isPhotoModalOpen} onOpenChange={setIsPhotoModalOpen}>
-                    <DialogTrigger asChild>
-                      <Button 
-                        size="sm" 
-                        className="absolute -bottom-1 -right-1 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-primary text-primary-foreground p-0"
-                      >
-                        <Camera className="w-3 h-3 sm:w-4 sm:h-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[95vw] max-w-md mx-auto">
-                      <DialogHeader>
-                        <DialogTitle>Change Profile Photo</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="text-center">
-                          <Avatar className="w-20 h-20 mx-auto mb-4">
-                            <img src={userProfile.avatar} alt={userProfile.name} />
-                          </Avatar>
-                          <p className="text-sm text-muted-foreground mb-4">
-                            Choose a new profile photo
-                          </p>
+              {/* Main Content Area */}
+              <div className="flex-1 max-w-md w-full mx-auto px-5 pt-5 pb-24 space-y-5">
+
+                {/* Profile Hero Section */}
+                <div className="flex items-center space-x-4 py-2">
+                  {/* Larger Avatar with Camera Icon */}
+                  <div className="relative shrink-0">
+                    <div className="w-24 h-24 sm:w-26 sm:h-26 rounded-full overflow-hidden border-2 border-gray-100 shadow-sm bg-gray-50 relative">
+                      <img
+                        src={userProfile.avatar}
+                        alt={userProfile.name}
+                        className="w-full h-full object-cover"
+                      />
+                      {isUploadingPhoto && (
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-full">
+                          <Loader2 className="w-6 h-6 text-white animate-spin" />
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="photo-upload" className="cursor-pointer">
-                            <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary transition-colors">
-                              <Camera className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                              <p className="text-sm font-medium">Click to upload photo</p>
-                              <p className="text-xs text-muted-foreground">JPG, PNG up to 5MB</p>
-                            </div>
-                          </Label>
-                          <Input
-                            id="photo-upload"
-                            type="file"
-                            accept="image/*"
-                            onChange={handlePhotoChange}
-                            className="hidden"
-                          />
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-                <div className={`flex-1 text-center sm:text-left ${isMobile ? 'space-y-3' : ''}`}>
-                  <h2 className="text-lg sm:text-xl font-semibold text-foreground">{userProfile.name}</h2>
-                  <div className={`space-y-2 mt-2 ${isMobile ? 'text-sm' : ''}`}>
-                    <div className="flex items-center justify-center sm:justify-start space-x-2">
-                      <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm text-muted-foreground break-all">{userProfile.email}</span>
+                      )}
                     </div>
-                    <div className="flex items-center justify-center sm:justify-start space-x-2">
-                      <Phone className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm text-muted-foreground">{userProfile.phone}</span>
-                    </div>
-                    <div className="flex items-center justify-center sm:justify-start space-x-2">
-                      <Home className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm text-muted-foreground">{userProfile.location}</span>
-                    </div>
+                    <label
+                      htmlFor="hero-photo-upload"
+                      className={`absolute bottom-0 right-0 w-7 h-7 rounded-full bg-white border border-gray-200 text-gray-700 flex items-center justify-center cursor-pointer shadow-xs hover:bg-gray-50 transition-transform active:scale-95 ${isUploadingPhoto ? 'opacity-50 pointer-events-none' : ''}`}
+                      title="Change Photo"
+                    >
+                      {isUploadingPhoto ? (
+                        <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+                      ) : (
+                        <Camera className="w-4 h-4 text-gray-600" />
+                      )}
+                      <input
+                        id="hero-photo-upload"
+                        type="file"
+                        accept="image/*"
+                        disabled={isUploadingPhoto}
+                        onChange={handlePhotoChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Name and Email */}
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 truncate leading-tight">
+                      {userProfile.name}
+                    </h2>
+                    <p className="text-sm text-gray-500 truncate mt-1 font-normal">
+                      {userProfile.email && userProfile.email !== "No email provided"
+                        ? userProfile.email
+                        : userProfile.phone || "No email added"}
+                    </p>
                   </div>
                 </div>
-                <div className="flex justify-center sm:justify-end">
-                  <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={handleEditProfileOpen} className="w-full sm:w-auto">
-                        <Edit3 className="w-4 h-4 mr-1" />
-                        Edit
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[95vw] max-w-md mx-auto">
-                      <DialogHeader>
-                        <DialogTitle>Edit Profile</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="firstname">First Name *</Label>
-                          <Input
-                            id="firstname"
-                            value={editProfile.firstName}
-                            onChange={(e) => setEditProfile({...editProfile, firstName: e.target.value})}
-                            placeholder="Enter your first name"
-                            required
-                          />
-                          <p className="text-xs text-muted-foreground">First name is required</p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="lastname">Last Name *</Label>
-                          <Input
-                            id="lastname"
-                            value={editProfile.lastName}
-                            onChange={(e) => setEditProfile({...editProfile, lastName: e.target.value})}
-                            placeholder="Enter your last name"
-                            required
-                          />
-                          <p className="text-xs text-muted-foreground">Last name is required</p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="email">Email (Optional)</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            value={editProfile.email}
-                            onChange={(e) => setEditProfile({...editProfile, email: e.target.value})}
-                            placeholder="Enter your email address"
-                          />
-                          <p className="text-xs text-muted-foreground">Email is optional but recommended for notifications</p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="phone">Phone Number *</Label>
-                          <Input
-                            id="phone"
-                            value={editProfile.phone}
-                            onChange={(e) => setEditProfile({...editProfile, phone: e.target.value})}
-                            placeholder="Enter your 10-digit phone number"
-                            required
-                          />
-                          <p className="text-xs text-muted-foreground">Phone number is required for account verification</p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="location">Location</Label>
-                          <Input
-                            id="location"
-                            value={editProfile.location}
-                            onChange={(e) => setEditProfile({...editProfile, location: e.target.value})}
-                            placeholder="Enter your location"
-                          />
-                        </div>
-                        <div className="flex space-x-2 pt-4">
-                          <Button 
-                            variant="outline" 
-                            className="flex-1"
-                            onClick={() => setIsEditModalOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button 
-                            className="flex-1"
-                            onClick={handleSaveProfile}
-                            disabled={isSaving}
-                          >
-                            {isSaving ? "Saving..." : "Save Changes"}
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-            </Card>
 
-            {/* Profile Options */}
-            <div>
-              <h3 className="text-base sm:text-lg font-semibold text-foreground mb-3 sm:mb-4 px-1">Account Settings</h3>
-              <div className="space-y-2 sm:space-y-3">
-                {profileOptions.map((option) => (
-                  <Dialog key={option.id} open={activeModal === option.modal} onOpenChange={(open) => setActiveModal(open ? option.modal : null)}>
-                    <DialogTrigger asChild>
-                      <Card 
-                        className="p-3 sm:p-4 border border-border cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() => handlePersonalModalOpen(option.modal)}
-                      >
-                        <div className="flex items-center space-x-3 sm:space-x-4">
-                          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-                            <option.icon className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium text-foreground text-sm sm:text-base">{option.title}</h4>
-                            <p className="text-xs sm:text-sm text-muted-foreground">{option.description}</p>
-                          </div>
-                          <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
-                        </div>
-                      </Card>
-                    </DialogTrigger>
-                    <DialogContent className="w-[95vw] max-w-md mx-auto">
-                      <DialogHeader>
-                        <DialogTitle>{option.title}</DialogTitle>
-                      </DialogHeader>
-                      {renderModalContent(option.modal)}
-                    </DialogContent>
-                  </Dialog>
-                ))}
+                {/* All Menu Items in Clean, Uniform Spacing */}
+                <div className="space-y-1 pt-1">
+                  {/* Personal Information */}
+                  <div
+                    onClick={() => handleOpenView('personal')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <User className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        Personal Information
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* My Bookings */}
+                  <div
+                    onClick={() => navigate('/bookings')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <Ticket className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        My Bookings
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* Notifications */}
+                  <div
+                    onClick={() => handleOpenView('notifications')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <Bell className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        Notifications
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* Terms & Conditions */}
+                  <div
+                    onClick={() => navigate('/terms-conditions')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <FileText className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        Terms & Conditions
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* Privacy Policy */}
+                  <div
+                    onClick={() => navigate('/privacy-policy')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <ShieldCheck className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        Privacy Policy
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* Refund Policy */}
+                  <div
+                    onClick={() => navigate('/refund-policy')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <RotateCcw className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        Refund Policy
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* FAQs */}
+                  <div
+                    onClick={() => navigate('/help')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <HelpCircle className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        FAQs
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* Download App */}
+                  <div
+                    onClick={() => window.open('https://play.google.com/store/apps/details?id=com.chalo.sawari', '_blank')}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <Download className="w-5 h-5 text-gray-700 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                        Download App
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+
+                  {/* Log Out */}
+                  <div
+                    onClick={handleLogout}
+                    className="flex items-center justify-between py-3.5 px-2 hover:bg-red-50/60 rounded-xl transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <LogOut className="w-5 h-5 text-red-500 stroke-[1.75]" />
+                      <span className="text-sm sm:text-base font-medium text-red-600 group-hover:text-red-700">
+                        Log Out
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-red-400 group-hover:text-red-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Logout */}
-            <Card className="p-3 sm:p-4 border border-border">
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  <LogOut className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-medium text-foreground text-sm sm:text-base">Logout</h4>
-                  <p className="text-xs sm:text-sm text-muted-foreground">Sign out of your account</p>
-                </div>
-                <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 flex-shrink-0" onClick={handleLogout}>
-                  Logout
-                </Button>
-              </div>
-            </Card>
-
-            {/* Download App */}
-            <Card className="p-3 sm:p-4 border border-border">
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-medium text-foreground text-sm sm:text-base">Download App</h4>
-                  <p className="text-xs sm:text-sm text-muted-foreground">Get the mobile app for better experience</p>
-                </div>
-                <Button 
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm flex-shrink-0" 
-                  size="sm"
-                  onClick={() => window.open('https://play.google.com/store/apps/details?id=com.chalo.sawari', '_blank')}
+          {/* ========================================================================= */}
+          {/* VIEW 2: FULL-PAGE PERSONAL INFORMATION / EDIT PROFILE */}
+          {/* ========================================================================= */}
+          {currentView === 'personal' && (
+            <div className="flex-1 flex flex-col bg-white min-h-screen">
+              {/* Top Navigation Bar with Back Button */}
+              <div className="bg-white text-gray-900 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('main')}
+                  className="p-2 -ml-2 text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+                  aria-label="Back"
                 >
-                  Download
-                </Button>
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h1 className="text-lg font-bold text-gray-900 tracking-tight">
+                  Personal Information
+                </h1>
+                <div className="w-8"></div>
               </div>
-            </Card>
 
-            {/* App Version */}
-            <div className="text-center pt-2">
-              <p className="text-xs sm:text-sm text-muted-foreground">App Version 1.0.0</p>
+              {/* Full-Page Form Content */}
+              <div className="flex-1 max-w-md w-full mx-auto px-5 py-6 pb-24">
+                <form onSubmit={handleSaveProfile} className="space-y-5">
+                  {/* Avatar Upload */}
+                  <div className="flex flex-col items-center justify-center pt-2 pb-3">
+                    <div className="relative">
+                      <Avatar className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-md bg-gray-100 overflow-hidden relative">
+                        <img
+                          src={userProfile.avatar}
+                          alt={userProfile.name}
+                          className="w-full h-full object-cover"
+                        />
+                        {isUploadingPhoto && (
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-full">
+                            <Loader2 className="w-7 h-7 text-white animate-spin" />
+                          </div>
+                        )}
+                      </Avatar>
+                      <label
+                        htmlFor="photo-upload-input"
+                        className={`absolute bottom-0 right-0 w-8 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center cursor-pointer shadow-md transition-transform hover:scale-105 ${isUploadingPhoto ? 'opacity-50 pointer-events-none' : ''}`}
+                        title="Upload Photo"
+                      >
+                        {isUploadingPhoto ? (
+                          <Loader2 className="w-4 h-4 text-white animate-spin" />
+                        ) : (
+                          <Camera className="w-4 h-4" />
+                        )}
+                        <input
+                          id="photo-upload-input"
+                          type="file"
+                          accept="image/*"
+                          disabled={isUploadingPhoto}
+                          onChange={handlePhotoChange}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 font-medium mt-2">
+                      {isUploadingPhoto ? "Uploading photo..." : "Tap camera icon to change photo"}
+                    </p>
+                  </div>
+
+                  {/* First Name */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="firstName" className="text-xs font-semibold text-gray-700">
+                      First Name *
+                    </Label>
+                    <Input
+                      id="firstName"
+                      value={editProfile.firstName}
+                      onChange={(e) => setEditProfile({ ...editProfile, firstName: e.target.value })}
+                      placeholder="Enter your first name"
+                      className="h-12 rounded-xl bg-gray-50/70 border-gray-200 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all"
+                      required
+                    />
+                  </div>
+
+                  {/* Last Name */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lastName" className="text-xs font-semibold text-gray-700">
+                      Last Name *
+                    </Label>
+                    <Input
+                      id="lastName"
+                      value={editProfile.lastName}
+                      onChange={(e) => setEditProfile({ ...editProfile, lastName: e.target.value })}
+                      placeholder="Enter your last name"
+                      className="h-12 rounded-xl bg-gray-50/70 border-gray-200 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all"
+                      required
+                    />
+                  </div>
+
+                  {/* Email */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
+                      Email Address <span className="text-gray-400 font-normal">(Optional)</span>
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={editProfile.email}
+                      onChange={(e) => setEditProfile({ ...editProfile, email: e.target.value })}
+                      placeholder="Enter your email address"
+                      className="h-12 rounded-xl bg-gray-50/70 border-gray-200 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all"
+                    />
+                  </div>
+
+                  {/* Phone Number */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="phone" className="text-xs font-semibold text-gray-700">
+                      Mobile Number *
+                    </Label>
+                    <div className="relative flex items-center">
+                      <Input
+                        id="phone"
+                        value={editProfile.phone}
+                        readOnly
+                        placeholder="10-digit mobile number"
+                        className="h-12 rounded-xl bg-gray-100 cursor-not-allowed border-gray-200 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all pr-20"
+                        required
+                      />
+                      <span className="absolute right-3 flex items-center space-x-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                        <span>Verified</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Location */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="location" className="text-xs font-semibold text-gray-700">
+                      City / Location
+                    </Label>
+                    <Input
+                      id="location"
+                      value={editProfile.location}
+                      onChange={(e) => setEditProfile({ ...editProfile, location: e.target.value })}
+                      placeholder="Enter your city/location"
+                      className="h-12 rounded-xl bg-gray-50/70 border-gray-200 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="pt-4 space-y-2.5">
+                    <Button
+                      type="submit"
+                      disabled={isSaving}
+                      className="w-full h-12 rounded-xl text-base font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all active:scale-[0.99]"
+                    >
+                      {isSaving ? "Saving Changes..." : "Save Changes"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setCurrentView('main')}
+                      className="w-full h-11 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* VIEW 3: FULL-PAGE NOTIFICATIONS */}
+          {/* ========================================================================= */}
+          {currentView === 'notifications' && (
+            <div className="flex-1 flex flex-col bg-white min-h-screen">
+              <div className="bg-white text-gray-900 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('main')}
+                  className="p-2 -ml-2 text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+                  aria-label="Back"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h1 className="text-lg font-bold text-gray-900 tracking-tight">
+                  Notifications
+                </h1>
+                <div className="w-8"></div>
+              </div>
+
+              <div className="flex-1 max-w-md w-full mx-auto px-5 py-6 space-y-4 pb-24">
+                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm">Push Notifications</p>
+                    <p className="text-xs text-gray-500">Receive notifications on your device</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm">Email Confirmations</p>
+                    <p className="text-xs text-gray-500">Receive tickets and receipts via email</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+
+                <div className="pt-4">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      toast({ title: "Preferences Saved", description: "Notification settings updated." });
+                      setCurrentView('main');
+                    }}
+                    className="w-full h-12 rounded-xl text-base font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20"
+                  >
+                    Save Preferences
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -744,4 +774,4 @@ const Profile = () => {
   );
 };
 
-export default Profile; 
+export default Profile;

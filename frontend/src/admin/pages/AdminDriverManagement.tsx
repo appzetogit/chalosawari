@@ -57,11 +57,56 @@ import {
   AlertTriangle,
   Check,
   Ban,
-  Filter
+  Filter,
+  CheckCircle2,
+  AlertCircle,
+  CreditCard,
+  Landmark
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { adminDrivers, adminVehicles } from "@/services/adminApi";
+import { resolveImageUrl } from "@/utils/imageUrl";
+
+// All 28 Indian States and 8 Union Territories
+const INDIAN_STATES = [
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Andaman and Nicobar Islands",
+  "Chandigarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Jammu and Kashmir",
+  "Ladakh",
+  "Lakshadweep",
+  "Puducherry"
+];
 
 interface Driver {
   _id: string;
@@ -69,9 +114,14 @@ interface Driver {
   lastName: string;
   email: string;
   phone: string;
-  address: {
-    city: string;
-    state: string;
+  gender?: string;
+  dateOfBirth?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    country?: string;
   };
   profilePicture?: string;
   status: 'active' | 'suspended' | 'pending' | 'verified';
@@ -81,27 +131,74 @@ interface Driver {
   rating: number;
   isVerified: boolean;
   isApproved: boolean;
-  documents: {
-    drivingLicense: {
-      number: string;
-      expiryDate: string;
-      isVerified: boolean;
+  documents?: {
+    drivingLicense?: {
+      number?: string;
+      expiryDate?: string;
+      isVerified?: boolean;
+      image?: string;
     };
-    vehicleRC: {
-      number: string;
-      expiryDate: string;
-      isVerified: boolean;
+    vehicleRC?: {
+      number?: string;
+      expiryDate?: string;
+      isVerified?: boolean;
       image?: string;
     };
     insurance?: {
+      number?: string;
+      expiryDate?: string;
+      isVerified?: boolean;
+      image?: string;
+    };
+    fitness?: {
+      number?: string;
+      expiryDate?: string;
+      isVerified?: boolean;
+      image?: string;
+    };
+    permit?: {
+      number?: string;
+      expiryDate?: string;
+      isVerified?: boolean;
       image?: string;
     };
   };
+  bankDetails?: {
+    accountNumber?: string;
+    ifscCode?: string;
+    bankName?: string;
+    accountHolderName?: string;
+  };
+  earnings?: {
+    wallet?: {
+      balance?: number;
+    };
+    commission?: number;
+  };
+  availability?: {
+    isOnline?: boolean;
+    workingHours?: {
+      start?: string;
+      end?: string;
+    };
+    workingDays?: string[];
+  };
+  agreement?: {
+    isAccepted?: boolean;
+    acceptedAt?: string;
+    ipAddress?: string;
+  };
   lastLogin?: string;
   vehicleDetails?: {
-    type: string;
-    brand: string;
-    model: string;
+    type?: string;
+    brand?: string;
+    model?: string;
+    year?: number;
+    color?: string;
+    fuelType?: string;
+    seatingCapacity?: number;
+    registrationNumber?: string;
+    isAc?: boolean;
   };
 }
 
@@ -164,12 +261,27 @@ interface NewDriverForm {
 
 interface EditDriverForm {
   // Basic Information
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
-  location: string;
+  isApproved: boolean;
+  isVerified: boolean;
+  isActive: boolean;
   
-  
+  // Address Information (Sequence: Country, State, City, Pincode, Street)
+  country: string;
+  state: string;
+  city: string;
+  pincode: string;
+  street: string;
+
+  // Bank & Payout Information
+  accountHolderName: string;
+  bankName: string;
+  accountNumber: string;
+  ifscCode: string;
+
   // Additional Information
   totalTrips: number;
   totalEarnings: number;
@@ -343,6 +455,15 @@ interface DriverRequest {
   updatedAt: string;
 }
 
+const hasRealVehicle = (vehicle?: Driver['vehicleDetails']) => {
+  if (!vehicle) return false;
+  const brand = vehicle.brand?.trim().toUpperCase();
+  if (!brand || brand === 'TBD' || brand === 'PENDING') return false;
+  const model = vehicle.model?.trim().toUpperCase();
+  if (model === 'TBD' && (!vehicle.registrationNumber || vehicle.registrationNumber.toUpperCase() === 'PENDING')) return false;
+  return true;
+};
+
 const AdminDriverManagement = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -389,10 +510,22 @@ const AdminDriverManagement = () => {
   });
 
   const [editDriverForm, setEditDriverForm] = useState<EditDriverForm>({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     phone: "",
-    location: "",
+    isApproved: false,
+    isVerified: false,
+    isActive: true,
+    country: "India",
+    state: "",
+    city: "",
+    pincode: "",
+    street: "",
+    accountHolderName: "",
+    bankName: "",
+    accountNumber: "",
+    ifscCode: "",
     totalTrips: 0,
     totalEarnings: 0,
     rating: 0
@@ -424,7 +557,6 @@ const AdminDriverManagement = () => {
         
         await loadDrivers();
         await loadPendingVehicles();
-        await loadVehicles();
       } catch (err) {
         console.error('Error initializing admin module:', err);
         toast({
@@ -492,7 +624,6 @@ const AdminDriverManagement = () => {
               
               if (pricing) {
                 request.computedPricing = {
-                  basePrice: pricing.autoPrice,
                   distancePricing: pricing.distancePricing,
                   category: pricing.category,
                   vehicleType: pricing.vehicleType,
@@ -742,26 +873,58 @@ const AdminDriverManagement = () => {
       const response = await adminDrivers.getById(driver._id);
       const latestDriver = response.data;
       
+      const holderName = latestDriver.bankDetails?.accountHolderName && latestDriver.bankDetails.accountHolderName !== 'PENDING'
+        ? latestDriver.bankDetails.accountHolderName
+        : `${latestDriver.firstName || ''} ${latestDriver.lastName || ''}`.trim();
+
       setEditDriverForm({
-        name: `${latestDriver.firstName} ${latestDriver.lastName}`,
-        email: latestDriver.email,
-        phone: latestDriver.phone,
-        location: `${latestDriver.address.city}, ${latestDriver.address.state}`,
-        totalTrips: latestDriver.totalRides,
-        totalEarnings: latestDriver.totalEarnings,
-        rating: latestDriver.rating
+        firstName: latestDriver.firstName || '',
+        lastName: latestDriver.lastName || '',
+        email: latestDriver.email || '',
+        phone: latestDriver.phone || '',
+        isApproved: !!latestDriver.isApproved,
+        isVerified: !!latestDriver.isVerified,
+        isActive: latestDriver.isActive !== undefined ? latestDriver.isActive : (latestDriver.status === 'active'),
+        country: latestDriver.address?.country || 'India',
+        state: latestDriver.address?.state || '',
+        city: latestDriver.address?.city || '',
+        pincode: latestDriver.address?.pincode || '',
+        street: latestDriver.address?.street || '',
+        accountHolderName: holderName,
+        bankName: latestDriver.bankDetails?.bankName && latestDriver.bankDetails.bankName !== 'PENDING' ? latestDriver.bankDetails.bankName : '',
+        accountNumber: latestDriver.bankDetails?.accountNumber && latestDriver.bankDetails.accountNumber !== 'PENDING' ? latestDriver.bankDetails.accountNumber : '',
+        ifscCode: latestDriver.bankDetails?.ifscCode && latestDriver.bankDetails.ifscCode !== 'PENDING' ? latestDriver.bankDetails.ifscCode : '',
+        totalTrips: latestDriver.totalRides || 0,
+        totalEarnings: latestDriver.totalEarnings || 0,
+        rating: latestDriver.rating || 0
       });
     } catch (error) {
       console.error('Error fetching latest driver data:', error);
       // Fallback to the driver data we have
+      const holderName = (driver as any).bankDetails?.accountHolderName && (driver as any).bankDetails.accountHolderName !== 'PENDING'
+        ? (driver as any).bankDetails.accountHolderName
+        : `${driver.firstName || ''} ${driver.lastName || ''}`.trim();
+
       setEditDriverForm({
-        name: `${driver.firstName} ${driver.lastName}`,
-        email: driver.email,
-        phone: driver.phone,
-        location: `${driver.address.city}, ${driver.address.state}`,
-        totalTrips: driver.totalRides,
-        totalEarnings: driver.totalEarnings,
-        rating: driver.rating
+        firstName: driver.firstName || '',
+        lastName: driver.lastName || '',
+        email: driver.email || '',
+        phone: driver.phone || '',
+        isApproved: !!(driver as any).isApproved,
+        isVerified: !!(driver as any).isVerified,
+        isActive: driver.status === 'active',
+        country: driver.address?.country || 'India',
+        state: driver.address?.state || '',
+        city: driver.address?.city || '',
+        pincode: driver.address?.pincode || '',
+        street: driver.address?.street || '',
+        accountHolderName: holderName,
+        bankName: (driver as any).bankDetails?.bankName && (driver as any).bankDetails.bankName !== 'PENDING' ? (driver as any).bankDetails.bankName : '',
+        accountNumber: (driver as any).bankDetails?.accountNumber && (driver as any).bankDetails.accountNumber !== 'PENDING' ? (driver as any).bankDetails.accountNumber : '',
+        ifscCode: (driver as any).bankDetails?.ifscCode && (driver as any).bankDetails.ifscCode !== 'PENDING' ? (driver as any).bankDetails.ifscCode : '',
+        totalTrips: driver.totalRides || 0,
+        totalEarnings: driver.totalEarnings || 0,
+        rating: driver.rating || 0
       });
     } finally {
       setIsSubmitting(false);
@@ -777,37 +940,84 @@ const AdminDriverManagement = () => {
     }));
   };
 
-
-
   const handleUpdateDriver = async () => {
     if (!editingDriver) return;
+
+    if (!editDriverForm.firstName.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "First name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!editDriverForm.lastName.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Last name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!editDriverForm.phone.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Phone number is required",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Update driver in the list
-      setDrivers(prev => prev.map(driver => 
-        driver._id === editingDriver._id 
-          ? { ...driver, ...editDriverForm }
-          : driver
-      ));
-      
-      toast({
-        title: "Driver Updated",
-        description: `${editDriverForm.name}'s information has been updated successfully`,
-        variant: "default",
-      });
+      const payload = {
+        firstName: editDriverForm.firstName.trim(),
+        lastName: editDriverForm.lastName.trim(),
+        email: editDriverForm.email.trim(),
+        phone: editDriverForm.phone.trim(),
+        isApproved: editDriverForm.isApproved,
+        isVerified: editDriverForm.isVerified,
+        isActive: editDriverForm.isActive,
+        address: {
+          country: editDriverForm.country || 'India',
+          state: editDriverForm.state.trim(),
+          city: editDriverForm.city.trim(),
+          pincode: editDriverForm.pincode.trim(),
+          street: editDriverForm.street.trim()
+        },
+        bankDetails: {
+          accountHolderName: editDriverForm.accountHolderName.trim() || `${editDriverForm.firstName.trim()} ${editDriverForm.lastName.trim()}`,
+          bankName: editDriverForm.bankName.trim() || 'PENDING',
+          accountNumber: editDriverForm.accountNumber.trim() || 'PENDING',
+          ifscCode: editDriverForm.ifscCode.trim().toUpperCase() || 'PENDING'
+        }
+      };
 
-      setShowEditDriver(false);
-      setEditingDriver(null);
+      const response = await adminDrivers.update(editingDriver._id, payload);
       
-    } catch (error) {
+      if (response.success) {
+        toast({
+          title: "Driver Updated",
+          description: `${editDriverForm.firstName} ${editDriverForm.lastName}'s information has been updated successfully`,
+          variant: "default",
+        });
+
+        setShowEditDriver(false);
+        setEditingDriver(null);
+        await loadDrivers();
+      } else {
+        toast({
+          title: "Update Failed",
+          description: response.message || "Failed to update driver",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      console.error('Update driver error:', error);
       toast({
         title: "Error",
-        description: "Failed to update driver. Please try again.",
+        description: error.response?.data?.message || error.message || "Failed to update driver. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -843,7 +1053,6 @@ const AdminDriverManagement = () => {
               
               if (pricing) {
                 vehicle.computedPricing = {
-                  basePrice: pricing.autoPrice,
                   distancePricing: pricing.distancePricing,
                   category: pricing.category,
                   vehicleType: pricing.vehicleType,
@@ -914,12 +1123,20 @@ const AdminDriverManagement = () => {
     let filtered = vehicles;
 
     if (vehicleSearchTerm) {
-      filtered = filtered.filter(vehicle =>
-        vehicle.model.toLowerCase().includes(vehicleSearchTerm.toLowerCase()) ||
-        vehicle.brand.toLowerCase().includes(vehicleSearchTerm.toLowerCase()) ||
-        vehicle.registrationNumber.toLowerCase().includes(vehicleSearchTerm.toLowerCase()) ||
-        `${vehicle.driver.firstName} ${vehicle.driver.lastName}`.toLowerCase().includes(vehicleSearchTerm.toLowerCase())
-      );
+      const lowerSearch = vehicleSearchTerm.toLowerCase();
+      filtered = filtered.filter(vehicle => {
+        const brand = ((vehicle as any).brand || '').toLowerCase();
+        const model = ((vehicle as any).pricingReference?.vehicleModel || (vehicle as any).model || '').toLowerCase();
+        const reg = ((vehicle as any).registrationNumber || '').toLowerCase();
+        const driverName = (vehicle as any).driver ? `${(vehicle as any).driver.firstName || ''} ${(vehicle as any).driver.lastName || ''}`.trim().toLowerCase() : '';
+
+        return (
+          brand.includes(lowerSearch) ||
+          model.includes(lowerSearch) ||
+          reg.includes(lowerSearch) ||
+          driverName.includes(lowerSearch)
+        );
+      });
     }
 
     if (vehicleStatusFilter !== "all") {
@@ -1180,12 +1397,14 @@ const AdminDriverManagement = () => {
   });
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    const num = Number(amount) || 0;
+    if (Number.isInteger(num)) {
+      return `₹${num.toLocaleString('en-IN')}`;
+    }
+    return `₹${Number(num.toFixed(2)).toLocaleString('en-IN', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 2
+    })}`;
   };
 
 
@@ -1195,15 +1414,80 @@ const AdminDriverManagement = () => {
 
   return (
     <AdminLayout>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 lg:mb-8 gap-4">
+      {/* Header with Search & Filters */}
+      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-2">Driver Management</h1>
-          <p className="text-gray-600 text-sm lg:text-base">Manage all registered drivers and their verification status</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 tracking-tight">Driver Management</h1>
+          <p className="text-gray-500 text-xs lg:text-sm mt-0.5">Manage all registered drivers and their verification status</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-          <Button size="sm" className="w-full sm:w-auto" onClick={() => setShowAddDriver(true)}>
-            <Plus className="w-4 h-4 mr-2" />
+
+        {/* Search, Filters, Refresh, Add Driver */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Search Bar */}
+          <div className="relative w-full sm:w-60 md:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder={`Search drivers... ${searchTerm ? `(${filteredDrivers.length})` : ''}`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-8 h-9 text-sm bg-white"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <XCircle className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-32 h-9 text-sm bg-white">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="verified">Verified</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="suspended">Suspended</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Select value={verificationFilter} onValueChange={setVerificationFilter}>
+            <SelectTrigger className="w-32 h-9 text-sm bg-white">
+              <SelectValue placeholder="Verification" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Drivers</SelectItem>
+              <SelectItem value="verified">Verified</SelectItem>
+              <SelectItem value="unverified">Unverified</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="h-9 px-3 text-sm bg-white shadow-xs"
+            onClick={() => {
+              setSearchTerm("");
+              setStatusFilter("all");
+              setVerificationFilter("all");
+              setSelectedDrivers([]);
+              loadDrivers();
+              toast({
+                title: "Refreshed",
+                description: "Filters have been reset and data refreshed",
+              });
+            }}
+          >
+            <RefreshCw className="w-4 h-4 mr-1.5" />
+            Refresh
+          </Button>
+
+          <Button size="sm" className="h-9 px-3.5 text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-xs font-medium" onClick={() => setShowAddDriver(true)}>
+            <Plus className="w-4 h-4 mr-1.5" />
             Add Driver
           </Button>
         </div>
@@ -1294,67 +1578,6 @@ const AdminDriverManagement = () => {
         </Card>
       </div>
 
-      {/* Search and Filters */}
-      <Card className="mb-6">
-        <CardContent className="p-4 lg:p-6">
-          <div className="flex flex-col gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                placeholder="Search drivers by name, email, phone, or license number..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="verified">Verified</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="suspended">Suspended</SelectItem>
-                </SelectContent>
-              </Select>
-              
-              <Select value={verificationFilter} onValueChange={setVerificationFilter}>
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Verification" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Drivers</SelectItem>
-                  <SelectItem value="verified">Verified</SelectItem>
-                  <SelectItem value="unverified">Unverified</SelectItem>
-                </SelectContent>
-              </Select>
-              
-              <Button 
-                variant="outline" 
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  setSearchTerm("");
-                  setStatusFilter("all");
-                  setVerificationFilter("all");
-                  setSelectedDrivers([]);
-                  toast({
-                    title: "Refreshed",
-                    description: "Filters have been reset and data refreshed",
-                  });
-                }}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Refresh
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Bulk Actions Bar */}
       {selectedDrivers.length > 0 && (
         <Card className="mb-4 shadow-sm border-0 bg-blue-50">
@@ -1407,7 +1630,7 @@ const AdminDriverManagement = () => {
                   variant="destructive"
                   size="sm"
                   onClick={handleBulkDelete}
-                  className="hidden"
+                  className="bg-red-600 hover:bg-red-700 text-white"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Delete Selected
@@ -1443,104 +1666,144 @@ const AdminDriverManagement = () => {
               <p className="text-gray-600">No drivers found matching your criteria</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
+              {/* Structured Column Header Bar */}
+              <div className="hidden lg:grid grid-cols-12 gap-4 px-4 py-3 bg-slate-100/90 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 uppercase tracking-wider items-center">
+                <div className="col-span-3 flex items-center space-x-3">
+                  <span className="w-4"></span>
+                  <span className="w-12"></span>
+                  <span>Driver</span>
+                </div>
+                <div className="col-span-3">
+                  <span>Contact Info</span>
+                </div>
+                <div className="col-span-2">
+                  <span>Trips & Activity</span>
+                </div>
+                <div className="col-span-1">
+                  <span>Status</span>
+                </div>
+                <div className="col-span-2">
+                  <span>Assigned Vehicle</span>
+                </div>
+                <div className="col-span-1 text-right">
+                  <span>Actions</span>
+                </div>
+              </div>
+
+              {/* Driver Rows */}
               {filteredDrivers.map((driver) => (
-                <div key={driver._id} className="flex flex-col lg:flex-row lg:items-center lg:justify-between p-4 border rounded-lg hover:bg-gray-50 gap-4">
-                  <div className="flex items-start space-x-4">
+                <div
+                  key={driver._id}
+                  className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 border border-gray-200/90 rounded-xl hover:bg-slate-50/70 transition-colors items-center bg-white shadow-xs"
+                >
+                  {/* Col 1: Driver Profile (3 cols) */}
+                  <div className="lg:col-span-3 flex items-start space-x-3.5 min-w-0">
                     <input
                       type="checkbox"
                       checked={selectedDrivers.includes(driver._id)}
                       onChange={() => toggleDriverSelection(driver._id)}
-                      className="rounded border-gray-300 mt-2"
+                      className="rounded border-gray-300 mt-2.5 shrink-0"
                     />
-                    <Avatar className="w-12 h-12 flex-shrink-0">
-                      <AvatarImage src={driver.profilePicture || "https://github.com/shadcn.png"} />
-                      <AvatarFallback>{`${driver.firstName} ${driver.lastName}`.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                    <Avatar className="w-12 h-12 flex-shrink-0 border border-gray-100">
+                      <AvatarImage src={driver.profilePicture ? resolveImageUrl(driver.profilePicture) : undefined} />
+                      <AvatarFallback className="bg-blue-100 text-blue-700 font-bold">{`${driver.firstName?.[0] || ''}${driver.lastName?.[0] || ''}`}</AvatarFallback>
                     </Avatar>
                     
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-2">
-                        <h3 className="font-semibold text-gray-900 truncate">{driver.firstName} {driver.lastName}</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {driver.isVerified && (
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs">
-                              <Shield className="w-3 h-3 mr-1" />
-                              Verified
-                            </Badge>
-                          )}
-                          <Badge className={`${getStatusColor(driver.status)} text-xs`}>
-                            {getStatusIcon(driver.status)}
-                            <span className="ml-1 capitalize">{driver.status}</span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-gray-900 truncate text-base">
+                        {driver.firstName} {driver.lastName}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {driver.isVerified && (
+                          <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 text-[11px] font-medium py-0">
+                            <Shield className="w-3 h-3 mr-1" />
+                            Verified
                           </Badge>
-                          <div className="flex items-center text-yellow-600">
-                            <Star className="w-4 h-4 fill-current" />
-                            <span className="ml-1 text-sm">{driver.rating}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm text-gray-600 mt-2 gap-1">
-                        <span className="flex items-center">
-                          <Mail className="w-3 h-3 mr-1 flex-shrink-0" />
-                          <span className="truncate">{driver.email}</span>
-                        </span>
-                        <span className="flex items-center">
-                          <Phone className="w-3 h-3 mr-1 flex-shrink-0" />
-                          <span className="truncate">{driver.phone}</span>
-                        </span>
-                        <span className="flex items-center">
-                          <MapPin className="w-3 h-3 mr-1 flex-shrink-0" />
-                          <span className="truncate">{driver.address.city}, {driver.address.state}</span>
-                        </span>
-                      </div>
-                      
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-xs text-gray-500 mt-2 gap-1">
-                        <span>Trips: {driver.totalRides}</span>
-                        <span>Earnings: {formatCurrency(driver.totalEarnings)}</span>
-                        <span>Last Active: {driver.lastLogin ? new Date(driver.lastLogin).toLocaleDateString() : 'Never'}</span>
-                      </div>
-                      
-                      {/* Enhanced Vehicle Information */}
-                      <div className="mt-2 p-2 bg-blue-50 rounded-lg">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                          <div className="flex items-center space-x-2">
-                            <CarIcon className="w-4 h-4 text-blue-600" />
-                            <span className="text-sm font-medium text-blue-800">
-                              {driver.vehicleDetails ? 1 : 0} Vehicle{driver.vehicleDetails ? '' : 's'}
-                            </span>
-                          </div>
-                          {driver.vehicleDetails && (
-                            <div className="flex flex-wrap items-center gap-1">
-                              <Badge variant="outline" className="text-xs bg-white">
-                                {getVehicleIcon(driver.vehicleDetails.type)}
-                                <span className="ml-1 capitalize">{driver.vehicleDetails.type}</span>
-                              </Badge>
-                            </div>
-                          )}
+                        )}
+                        <div className="flex items-center text-amber-500 text-xs font-semibold">
+                          <Star className="w-3.5 h-3.5 fill-current mr-0.5" />
+                          <span>{driver.rating ? Number(driver.rating).toFixed(1) : 'New'}</span>
                         </div>
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center justify-end space-x-2 lg:flex-shrink-0">
+
+                  {/* Col 2: Contact Info (3 cols) */}
+                  <div className="lg:col-span-3 space-y-1.5 text-xs text-gray-600">
+                    <div className="flex items-center space-x-2">
+                      <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span className="truncate">{driver.email || "No email provided"}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span className="truncate font-medium text-gray-800">{driver.phone || "No phone"}</span>
+                    </div>
+                  </div>
+
+                  {/* Col 3: Trips & Activity (2 cols) */}
+                  <div className="lg:col-span-2 space-y-1 text-xs text-gray-600">
+                    <div>
+                      <span className="text-gray-400">Trips: </span>
+                      <span className="font-semibold text-gray-900">{driver.totalRides || 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Earnings: </span>
+                      <span className="font-semibold text-emerald-600">{formatCurrency(driver.totalEarnings || 0)}</span>
+                    </div>
+                  </div>
+
+                  {/* Col 4: Status (1 col) */}
+                  <div className="lg:col-span-1 flex items-center">
+                    <Badge className={`${getStatusColor(driver.status)} text-[11px] font-medium py-0.5 px-2`}>
+                      {getStatusIcon(driver.status)}
+                      <span className="ml-1 capitalize">{driver.status}</span>
+                    </Badge>
+                  </div>
+
+                  {/* Col 5: Assigned Vehicle (2 cols) */}
+                  <div className="lg:col-span-2">
+                    {hasRealVehicle(driver.vehicleDetails) ? (
+                      <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-xl">
+                        <div className="flex items-center space-x-1.5 text-blue-800 font-semibold text-xs">
+                          <CarIcon className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span>1 Vehicle</span>
+                        </div>
+                        <div className="mt-1.5">
+                          <Badge variant="outline" className="text-[11px] bg-white border-blue-200 capitalize py-0.5">
+                            {getVehicleIcon(driver.vehicleDetails!.type)}
+                            <span className="ml-1">{driver.vehicleDetails!.brand} {driver.vehicleDetails!.model}</span>
+                          </Badge>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-gray-50/80 border border-dashed border-gray-200 rounded-xl text-center">
+                        <span className="text-xs text-gray-500 font-medium">No Vehicle Added</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Col 5: Actions (1 col) */}
+                  <div className="lg:col-span-1 flex items-center justify-end space-x-1.5">
                     {driver.status === 'suspended' && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleUnsuspendDriver(driver._id)}
-                        className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                        className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100 h-8 px-2"
+                        title="Unsuspend"
                       >
-                        <UserCheck className="w-4 h-4 mr-1" />
-                        Unsuspend
+                        <UserCheck className="w-3.5 h-3.5" />
                       </Button>
                     )}
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleEditDriver(driver)}
-                      className="bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                      className="bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100 h-8 w-8 p-0"
+                      title="Edit Driver"
                     >
-                      <Edit className="w-4 h-4" />
+                      <Edit className="w-3.5 h-3.5" />
                     </Button>
                     <Button
                       variant="outline"
@@ -1549,14 +1812,16 @@ const AdminDriverManagement = () => {
                         setSelectedDriver(driver);
                         setShowDriverDetails(true);
                       }}
+                      className="h-8 w-8 p-0"
+                      title="View Details"
                     >
-                      <Eye className="w-4 h-4" />
+                      <Eye className="w-3.5 h-3.5" />
                     </Button>
                     
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          <MoreVertical className="w-4 h-4" />
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                          <MoreVertical className="w-3.5 h-3.5" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -1570,12 +1835,10 @@ const AdminDriverManagement = () => {
                             Unsuspend Driver
                           </DropdownMenuItem>
                         ) : (
-                          <>
-                            <DropdownMenuItem onClick={() => handleStatusChange(driver._id, 'suspended')}>
-                              <UserX className="w-4 h-4 mr-2" />
-                              Suspend Driver
-                            </DropdownMenuItem>
-                          </>
+                          <DropdownMenuItem onClick={() => handleStatusChange(driver._id, 'suspended')}>
+                            <UserX className="w-4 h-4 mr-2" />
+                            Suspend Driver
+                          </DropdownMenuItem>
                         )}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
@@ -1607,118 +1870,6 @@ const AdminDriverManagement = () => {
                   </div>
                 </div>
               ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* All Vehicles Management */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg lg:text-xl">
-            <CarIcon className="w-5 h-5 text-blue-600" />
-            All Vehicles ({filteredVehicles.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* Vehicle Filters */}
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search vehicles by model, brand, registration, or owner..."
-                  value={vehicleSearchTerm}
-                  onChange={(e) => setVehicleSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <Select value={vehicleStatusFilter} onValueChange={setVehicleStatusFilter}>
-              <SelectTrigger className="w-full md:w-48">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={vehicleTypeFilter} onValueChange={setVehicleTypeFilter}>
-              <SelectTrigger className="w-full md:w-48">
-                <SelectValue placeholder="Filter by type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="car">Car</SelectItem>
-                <SelectItem value="bus">Bus</SelectItem>
-                <SelectItem value="truck">Truck</SelectItem>
-                <SelectItem value="bike">Bike</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Vehicle Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                      {filteredVehicles.map((vehicle) => (
-            <Card key={vehicle._id} className="hover:shadow-lg transition-shadow">
-              <CardContent className="p-4 md:p-6">
-                {/* Vehicle Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-2">
-                    {getVehicleIcon(vehicle.type)}
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{vehicle.brand} {vehicle.model}</h3>
-                      <p className="text-sm text-gray-600">{vehicle.registrationNumber}</p>
-                    </div>
-                  </div>
-                  {getVehicleStatusBadge(vehicle.status)}
-                </div>
-
-                {/* Vehicle Details */}
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">Owner: {vehicle.driver.firstName} {vehicle.driver.lastName}</span>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <span className="text-sm text-gray-600 break-words leading-relaxed">Base Location: {vehicle.vehicleLocation?.address || 'Location not set'}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Fuel className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">Fuel: {vehicle.fuelType}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">Seats: {vehicle.seatingCapacity}</span>
-                  </div>
-                </div>
-
-
-                {/* Actions */}
-                <div className="flex space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleVehicleAction('view', vehicle._id)}
-                    className="w-full"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    View
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          </div>
-
-          {filteredVehicles.length === 0 && (
-            <div className="text-center py-8">
-              <CarIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No vehicles found matching your criteria</p>
             </div>
           )}
         </CardContent>
@@ -2193,162 +2344,414 @@ const AdminDriverManagement = () => {
 
       {/* Edit Driver Dialog */}
       <Dialog open={showEditDriver} onOpenChange={setShowEditDriver}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Edit className="w-5 h-5" />
-              Edit Driver Information
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full p-0 gap-0 rounded-2xl">
+          {/* Header */}
+          <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-20">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Edit className="w-5 h-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold text-gray-900">
+                  Edit Driver Information
+                </DialogTitle>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Update driver profile, address, bank details and KYC records
+                </p>
+              </div>
+            </div>
+          </div>
           
-          <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-1">
-              <TabsTrigger value="basic">Basic Info</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="basic" className="space-y-6">
+          <div className="p-6 space-y-6">
+            {/* Section 1: Basic Information */}
+            <div className="p-5 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-4">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <User className="w-4 h-4 text-blue-600" />
+                Basic Personal Information
+              </h3>
+              
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="editName">Driver Name *</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="editFirstName" className="text-xs font-semibold text-gray-700">
+                    First Name <span className="text-red-500">*</span>
+                  </Label>
                   <Input
-                    id="editName"
-                    placeholder="Enter driver's full name"
-                    value={editDriverForm.name}
-                    onChange={(e) => handleEditFormChange('name', e.target.value)}
+                    id="editFirstName"
+                    placeholder="Enter first name"
+                    value={editDriverForm.firstName}
+                    onChange={(e) => handleEditFormChange('firstName', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
                   />
                 </div>
                 
-                <div className="space-y-2">
-                  <Label htmlFor="editEmail">Email Address *</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="editLastName" className="text-xs font-semibold text-gray-700">
+                    Last Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="editLastName"
+                    placeholder="Enter last name"
+                    value={editDriverForm.lastName}
+                    onChange={(e) => handleEditFormChange('lastName', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
+                  />
+                </div>
+                
+                <div className="space-y-1.5">
+                  <Label htmlFor="editEmail" className="text-xs font-semibold text-gray-700">
+                    Email Address
+                  </Label>
                   <Input
                     id="editEmail"
                     type="email"
                     placeholder="driver@example.com"
                     value={editDriverForm.email}
                     onChange={(e) => handleEditFormChange('email', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
                   />
                 </div>
                 
-                <div className="space-y-2">
-                  <Label htmlFor="editPhone">Phone Number *</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="editPhone" className="text-xs font-semibold text-gray-700">
+                    Phone Number <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     id="editPhone"
                     type="tel"
-                    placeholder="+91 9876543210"
+                    placeholder="10-digit mobile number"
                     value={editDriverForm.phone}
                     onChange={(e) => handleEditFormChange('phone', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm font-medium"
                   />
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="editLocation">Location *</Label>
-                  <Input
-                    id="editLocation"
-                    placeholder="City, State"
-                    value={editDriverForm.location}
-                    onChange={(e) => handleEditFormChange('location', e.target.value)}
-                  />
-                </div>
-                
               </div>
 
-              {/* Documents Section */}
-              <div className="space-y-4">
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                    Driver Documents
-                  </h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* RC Document */}
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <FileText className="w-5 h-5 text-blue-600" />
-                        <h4 className="font-semibold text-gray-900">RC Document</h4>
-                      </div>
-                      
-                      {editingDriver?.documents?.vehicleRC?.image ? (
-                        <div className="border rounded-lg overflow-hidden">
-                          <img 
-                            src={editingDriver.documents.vehicleRC.image} 
-                            alt="RC Document" 
-                            className="w-full h-auto max-h-48 object-contain bg-gray-50 cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => {
-                              setSelectedDocument({ type: 'RC Document', url: editingDriver.documents.vehicleRC.image });
-                              setShowDocumentModal(true);
-                            }}
-                          />
-                          <div className="p-3 bg-gray-50 border-t">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedDocument({ type: 'RC Document', url: editingDriver.documents.vehicleRC.image });
-                                setShowDocumentModal(true);
-                              }}
-                              className="w-full"
-                            >
-                              <Eye className="w-4 h-4 mr-2" />
-                              View RC Document
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <FileText className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-500">RC Document not uploaded</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Insurance Document */}
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <Shield className="w-5 h-5 text-green-600" />
-                        <h4 className="font-semibold text-gray-900">Insurance Document</h4>
-                      </div>
-                      
-                      {editingDriver?.documents?.insurance?.image ? (
-                        <div className="border rounded-lg overflow-hidden">
-                          <img 
-                            src={editingDriver.documents.insurance.image} 
-                            alt="Insurance Document" 
-                            className="w-full h-auto max-h-48 object-contain bg-gray-50 cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => {
-                              setSelectedDocument({ type: 'Insurance Document', url: editingDriver.documents.insurance.image });
-                              setShowDocumentModal(true);
-                            }}
-                          />
-                          <div className="p-3 bg-gray-50 border-t">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedDocument({ type: 'Insurance Document', url: editingDriver.documents.insurance.image });
-                                setShowDocumentModal(true);
-                              }}
-                              className="w-full"
-                            >
-                              <Eye className="w-4 h-4 mr-2" />
-                              View Insurance Document
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <Shield className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-500">Insurance Document not uploaded</p>
-                        </div>
-                      )}
-                    </div>
+              {/* Status & Verification Toggles */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-gray-200/60">
+                <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-200">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">Account Active</p>
+                    <p className="text-[10px] text-gray-500">Allow login</p>
                   </div>
+                  <Switch
+                    checked={editDriverForm.isActive}
+                    onCheckedChange={(checked) => handleEditFormChange('isActive', checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-200">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">KYC Verified</p>
+                    <p className="text-[10px] text-gray-500">Documents valid</p>
+                  </div>
+                  <Switch
+                    checked={editDriverForm.isVerified}
+                    onCheckedChange={(checked) => handleEditFormChange('isVerified', checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-200">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">Ride Approved</p>
+                    <p className="text-[10px] text-gray-500">Can take bookings</p>
+                  </div>
+                  <Switch
+                    checked={editDriverForm.isApproved}
+                    onCheckedChange={(checked) => handleEditFormChange('isApproved', checked)}
+                  />
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
+            </div>
 
-          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t bg-gray-50 -mx-6 -mb-6 px-6 py-4">
+            {/* Section 2: Address & Location (Sequence: Country, State, City, Pincode, Street) */}
+            <div className="p-5 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-4">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-emerald-600" />
+                Address & Location
+              </h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 1. Country */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="editCountry" className="text-xs font-semibold text-gray-700">
+                    Country
+                  </Label>
+                  <Input
+                    id="editCountry"
+                    value="India"
+                    disabled
+                    readOnly
+                    className="h-10 bg-gray-100/90 text-gray-700 rounded-xl text-sm font-medium cursor-not-allowed border-gray-200"
+                  />
+                </div>
+
+                {/* 2. State */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="editState" className="text-xs font-semibold text-gray-700">
+                    State
+                  </Label>
+                  <Select
+                    value={editDriverForm.state}
+                    onValueChange={(val) => handleEditFormChange('state', val)}
+                  >
+                    <SelectTrigger id="editState" className="h-10 bg-white rounded-xl text-sm border-gray-200">
+                      <SelectValue placeholder="Select State / UT" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {INDIAN_STATES.map((st) => (
+                        <SelectItem key={st} value={st}>
+                          {st}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 3. City */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="editCity" className="text-xs font-semibold text-gray-700">
+                    City
+                  </Label>
+                  <Input
+                    id="editCity"
+                    placeholder="Enter city"
+                    value={editDriverForm.city}
+                    onChange={(e) => handleEditFormChange('city', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
+                  />
+                </div>
+
+                {/* 4. Pincode */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="editPincode" className="text-xs font-semibold text-gray-700">
+                    Pincode
+                  </Label>
+                  <Input
+                    id="editPincode"
+                    placeholder="6-digit pincode"
+                    value={editDriverForm.pincode}
+                    onChange={(e) => handleEditFormChange('pincode', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm font-mono"
+                  />
+                </div>
+
+                {/* 5. Street */}
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="editStreet" className="text-xs font-semibold text-gray-700">
+                    Street Address / Landmark
+                  </Label>
+                  <Input
+                    id="editStreet"
+                    placeholder="House No, Street, Area"
+                    value={editDriverForm.street}
+                    onChange={(e) => handleEditFormChange('street', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Bank Details */}
+            <div className="p-5 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-4">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-purple-600" />
+                Bank & Payout Information
+              </h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="editAccountHolder" className="text-xs font-semibold text-gray-700">
+                    Account Holder Name
+                  </Label>
+                  <Input
+                    id="editAccountHolder"
+                    placeholder="Enter Account Holder Name"
+                    value={editDriverForm.accountHolderName}
+                    onChange={(e) => handleEditFormChange('accountHolderName', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="editBankName" className="text-xs font-semibold text-gray-700">
+                    Bank Name
+                  </Label>
+                  <Input
+                    id="editBankName"
+                    placeholder="Enter Bank Name"
+                    value={editDriverForm.bankName}
+                    onChange={(e) => handleEditFormChange('bankName', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="editAccountNumber" className="text-xs font-semibold text-gray-700">
+                    Account Number
+                  </Label>
+                  <Input
+                    id="editAccountNumber"
+                    placeholder="Enter Account Number"
+                    value={editDriverForm.accountNumber}
+                    onChange={(e) => handleEditFormChange('accountNumber', e.target.value)}
+                    className="h-10 bg-white rounded-xl text-sm font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="editIfscCode" className="text-xs font-semibold text-gray-700">
+                    IFSC Code
+                  </Label>
+                  <Input
+                    id="editIfscCode"
+                    placeholder="Enter IFSC Code"
+                    value={editDriverForm.ifscCode}
+                    onChange={(e) => handleEditFormChange('ifscCode', e.target.value.toUpperCase())}
+                    className="h-10 bg-white rounded-xl text-sm font-mono uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 4: Documents Section */}
+            <div className="p-5 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-4">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-600" />
+                Driver Documents & KYC
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* RC Document */}
+                <div className="space-y-2.5 p-3.5 bg-white border border-gray-200 rounded-xl">
+                  <div className="flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    <h4 className="font-semibold text-gray-900 text-xs">RC Document</h4>
+                  </div>
+                  
+                  {editingDriver?.documents?.vehicleRC?.image ? (
+                    <div className="border border-gray-100 rounded-lg overflow-hidden bg-gray-50">
+                      <img 
+                        src={resolveImageUrl(editingDriver.documents.vehicleRC.image)} 
+                        alt="RC Document" 
+                        className="w-full h-32 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => {
+                          setSelectedDocument({ type: 'Vehicle RC Document', url: resolveImageUrl(editingDriver.documents?.vehicleRC?.image) });
+                          setShowDocumentModal(true);
+                        }}
+                      />
+                      <div className="p-2 bg-gray-50 border-t border-gray-100">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedDocument({ type: 'Vehicle RC Document', url: resolveImageUrl(editingDriver.documents?.vehicleRC?.image) });
+                            setShowDocumentModal(true);
+                          }}
+                          className="w-full h-8 text-xs rounded-lg"
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
+                          View RC Document
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center">
+                      <FileText className="w-6 h-6 text-gray-400 mx-auto mb-1.5" />
+                      <p className="text-xs text-gray-500">RC not uploaded</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Insurance Document */}
+                <div className="space-y-2.5 p-3.5 bg-white border border-gray-200 rounded-xl">
+                  <div className="flex items-center space-x-2">
+                    <Shield className="w-4 h-4 text-emerald-600" />
+                    <h4 className="font-semibold text-gray-900 text-xs">Insurance Policy</h4>
+                  </div>
+                  
+                  {editingDriver?.documents?.insurance?.image ? (
+                    <div className="border border-gray-100 rounded-lg overflow-hidden bg-gray-50">
+                      <img 
+                        src={resolveImageUrl(editingDriver.documents.insurance.image)} 
+                        alt="Insurance Document" 
+                        className="w-full h-32 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => {
+                          setSelectedDocument({ type: 'Vehicle Insurance Policy', url: resolveImageUrl(editingDriver.documents?.insurance?.image) });
+                          setShowDocumentModal(true);
+                        }}
+                      />
+                      <div className="p-2 bg-gray-50 border-t border-gray-100">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedDocument({ type: 'Vehicle Insurance Policy', url: resolveImageUrl(editingDriver.documents?.insurance?.image) });
+                            setShowDocumentModal(true);
+                          }}
+                          className="w-full h-8 text-xs rounded-lg"
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
+                          View Insurance
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center">
+                      <Shield className="w-6 h-6 text-gray-400 mx-auto mb-1.5" />
+                      <p className="text-xs text-gray-500">Insurance not uploaded</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Driving License */}
+                <div className="space-y-2.5 p-3.5 bg-white border border-gray-200 rounded-xl">
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4 text-purple-600" />
+                    <h4 className="font-semibold text-gray-900 text-xs">Driving License</h4>
+                  </div>
+                  
+                  {editingDriver?.documents?.drivingLicense?.image ? (
+                    <div className="border border-gray-100 rounded-lg overflow-hidden bg-gray-50">
+                      <img 
+                        src={resolveImageUrl(editingDriver.documents.drivingLicense.image)} 
+                        alt="Driving License" 
+                        className="w-full h-32 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => {
+                          setSelectedDocument({ type: 'Commercial Driving License', url: resolveImageUrl(editingDriver.documents?.drivingLicense?.image) });
+                          setShowDocumentModal(true);
+                        }}
+                      />
+                      <div className="p-2 bg-gray-50 border-t border-gray-100">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedDocument({ type: 'Commercial Driving License', url: resolveImageUrl(editingDriver.documents?.drivingLicense?.image) });
+                            setShowDocumentModal(true);
+                          }}
+                          className="w-full h-8 text-xs rounded-lg"
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
+                          View License
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center">
+                      <User className="w-6 h-6 text-gray-400 mx-auto mb-1.5" />
+                      <p className="text-xs text-gray-500">License not uploaded</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex flex-col sm:flex-row justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50 sticky bottom-0 z-20">
             <Button
               variant="outline"
               onClick={() => {
@@ -2356,14 +2759,14 @@ const AdminDriverManagement = () => {
                 setEditingDriver(null);
               }}
               disabled={isSubmitting}
-              className="w-full sm:w-auto order-2 sm:order-1"
+              className="w-full sm:w-auto order-2 sm:order-1 rounded-xl"
             >
               Cancel
             </Button>
             <Button
               onClick={handleUpdateDriver}
               disabled={isSubmitting}
-              className="w-full sm:w-auto order-1 sm:order-2 min-w-[120px]"
+              className="w-full sm:w-auto order-1 sm:order-2 min-w-[130px] rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
             >
               {isSubmitting ? (
                 "Updating..."
@@ -2611,6 +3014,416 @@ const AdminDriverManagement = () => {
                 >
                   Close
                 </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Driver Full Details Modal (Eye Icon) */}
+      <Dialog open={showDriverDetails} onOpenChange={setShowDriverDetails}>
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0 rounded-2xl border-0 shadow-2xl bg-slate-50/50">
+          {selectedDriver && (
+            <div className="flex flex-col">
+              {/* Header Hero Banner */}
+              <div className="relative bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-6 rounded-t-2xl">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center space-x-4">
+                    <Avatar className="w-16 h-16 border-2 border-white/20 shadow-lg shrink-0">
+                      <AvatarImage 
+                        src={selectedDriver.profilePicture ? resolveImageUrl(selectedDriver.profilePicture) : undefined} 
+                        alt={selectedDriver.firstName}
+                      />
+                      <AvatarFallback className="bg-blue-600 text-white text-xl font-bold">
+                        {`${selectedDriver.firstName?.[0] || 'D'}${selectedDriver.lastName?.[0] || ''}`}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-xl font-bold text-white tracking-tight">
+                          {selectedDriver.firstName} {selectedDriver.lastName}
+                        </h2>
+                        {selectedDriver.isVerified && (
+                          <Badge className="bg-blue-500/20 text-blue-300 border border-blue-400/30 text-xs px-2 py-0.5">
+                            <Shield className="w-3 h-3 mr-1 text-blue-400" />
+                            Verified Driver
+                          </Badge>
+                        )}
+                        <Badge className={`${getStatusColor(selectedDriver.status)} text-xs py-0.5`}>
+                          {getStatusIcon(selectedDriver.status)}
+                          <span className="ml-1 capitalize">{selectedDriver.status}</span>
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-4 mt-2 text-xs text-blue-200/80 flex-wrap">
+                        <div className="flex items-center text-amber-400 font-semibold">
+                          <Star className="w-3.5 h-3.5 fill-current mr-1" />
+                          <span>{selectedDriver.rating || 0} Rating</span>
+                        </div>
+                        <div className="flex items-center">
+                          <Calendar className="w-3.5 h-3.5 mr-1 text-blue-300" />
+                          <span>Joined {new Date(selectedDriver.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                        </div>
+                        <div className="text-blue-300/60 font-mono text-[11px]">
+                          ID: {selectedDriver._id}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Body Content */}
+              <div className="p-6 space-y-6 bg-white">
+                {/* 1. Quick Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 bg-blue-50/70 border border-blue-100 rounded-xl">
+                    <p className="text-[11px] font-medium text-blue-600 uppercase tracking-wider">Total Rides</p>
+                    <p className="text-xl font-bold text-blue-900 mt-1">{selectedDriver.totalRides || 0}</p>
+                    <p className="text-[11px] text-blue-700/70 mt-0.5">Completed Trips</p>
+                  </div>
+                  <div className="p-3.5 bg-emerald-50/70 border border-emerald-100 rounded-xl">
+                    <p className="text-[11px] font-medium text-emerald-600 uppercase tracking-wider">Total Earnings</p>
+                    <p className="text-xl font-bold text-emerald-700 mt-1">{formatCurrency(selectedDriver.totalEarnings || 0)}</p>
+                    <p className="text-[11px] text-emerald-700/70 mt-0.5">Lifetime Revenue</p>
+                  </div>
+                  <div className="p-3.5 bg-violet-50/70 border border-violet-100 rounded-xl">
+                    <p className="text-[11px] font-medium text-violet-600 uppercase tracking-wider">Wallet Balance</p>
+                    <p className="text-xl font-bold text-violet-700 mt-1">
+                      {formatCurrency(selectedDriver.earnings?.wallet?.balance || 0)}
+                    </p>
+                    <p className="text-[11px] text-violet-700/70 mt-0.5">Available for Payout</p>
+                  </div>
+                </div>
+
+                {/* 2. Personal & Contact Details */}
+                <div className="p-4 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-3">
+                  <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-blue-600" />
+                    Personal & Contact Information
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Full Name</span>
+                      <p className="text-gray-900 font-semibold text-sm">{selectedDriver.firstName} {selectedDriver.lastName}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Mobile Number</span>
+                      <div className="flex items-center space-x-1.5">
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-gray-900 font-semibold text-sm">{selectedDriver.phone}</span>
+                        <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] px-1.5 py-0">
+                          <CheckCircle2 className="w-2.5 h-2.5 mr-0.5 text-emerald-600" />
+                          Verified
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Email Address</span>
+                      <div className="flex items-center space-x-1.5">
+                        <Mail className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-gray-800 font-medium">{selectedDriver.email || 'Not provided'}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Gender / Date of Birth</span>
+                      <p className="text-gray-800 font-medium capitalize">
+                        {selectedDriver.gender || 'Not specified'}
+                        {selectedDriver.dateOfBirth && ` (${new Date(selectedDriver.dateOfBirth).toLocaleDateString('en-IN')})`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Driver Residential Address */}
+                <div className="p-4 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-3">
+                  <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                    Residential Address
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="sm:col-span-2 space-y-1">
+                      <span className="text-gray-400 font-medium">Street Address</span>
+                      <p className="text-gray-900 font-medium">{selectedDriver.address?.street || 'Not provided'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">City</span>
+                      <p className="text-gray-900 font-semibold">{selectedDriver.address?.city || 'Not provided'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">State</span>
+                      <p className="text-gray-900 font-semibold">{selectedDriver.address?.state || 'Not provided'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Pincode</span>
+                      <p className="text-gray-900 font-semibold">{selectedDriver.address?.pincode || 'Not provided'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Country</span>
+                      <p className="text-gray-900 font-semibold">{selectedDriver.address?.country || 'India'}</p>
+                    </div>
+                    <div className="sm:col-span-2 space-y-1">
+                      <span className="text-gray-400 font-medium">Formatted Location</span>
+                      <p className="text-gray-700 bg-white px-2.5 py-1 rounded-lg border border-gray-200 truncate">
+                        {[
+                          selectedDriver.address?.street,
+                          selectedDriver.address?.city,
+                          selectedDriver.address?.state,
+                          selectedDriver.address?.pincode,
+                          selectedDriver.address?.country || 'India'
+                        ].filter(Boolean).join(', ') || 'No address registered'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Uploaded Documents & KYC */}
+                <div className="p-4 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-3">
+                  <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    Uploaded Documents & KYC
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Vehicle RC */}
+                    <div className="p-3 bg-white border border-gray-200 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <FileText className="w-4 h-4 text-blue-600" />
+                          <div>
+                            <p className="text-xs font-bold text-gray-900">Vehicle RC</p>
+                            <p className="text-[11px] text-gray-500 font-mono">{selectedDriver.documents?.vehicleRC?.number || 'Pending'}</p>
+                          </div>
+                        </div>
+                        {selectedDriver.documents?.vehicleRC?.image ? (
+                          <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                            <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
+                            Uploaded
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
+                      {selectedDriver.documents?.vehicleRC?.image ? (
+                        <div className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50 aspect-video flex items-center justify-center">
+                          <img 
+                            src={resolveImageUrl(selectedDriver.documents.vehicleRC.image)} 
+                            alt="Vehicle RC"
+                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                          />
+                          <div 
+                            onClick={() => {
+                              setSelectedDocument({ type: 'Vehicle RC Document', url: resolveImageUrl(selectedDriver.documents?.vehicleRC?.image) });
+                              setShowDocumentModal(true);
+                            }}
+                            className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer text-white text-xs font-semibold gap-1.5"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>Preview RC</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center text-gray-400 text-xs">
+                          No RC image
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Vehicle Insurance */}
+                    <div className="p-3 bg-white border border-gray-200 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Shield className="w-4 h-4 text-emerald-600" />
+                          <div>
+                            <p className="text-xs font-bold text-gray-900">Insurance</p>
+                            <p className="text-[11px] text-gray-500 font-mono">{selectedDriver.documents?.insurance?.number || 'Pending'}</p>
+                          </div>
+                        </div>
+                        {selectedDriver.documents?.insurance?.image ? (
+                          <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                            <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
+                            Uploaded
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
+                      {selectedDriver.documents?.insurance?.image ? (
+                        <div className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50 aspect-video flex items-center justify-center">
+                          <img 
+                            src={resolveImageUrl(selectedDriver.documents.insurance.image)} 
+                            alt="Vehicle Insurance"
+                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                          />
+                          <div 
+                            onClick={() => {
+                              setSelectedDocument({ type: 'Vehicle Insurance Policy', url: resolveImageUrl(selectedDriver.documents?.insurance?.image) });
+                              setShowDocumentModal(true);
+                            }}
+                            className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer text-white text-xs font-semibold gap-1.5"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>Preview Insurance</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center text-gray-400 text-xs">
+                          No Insurance image
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Driving License */}
+                    <div className="p-3 bg-white border border-gray-200 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <User className="w-4 h-4 text-purple-600" />
+                          <div>
+                            <p className="text-xs font-bold text-gray-900">Driving License</p>
+                            <p className="text-[11px] text-gray-500 font-mono">{selectedDriver.documents?.drivingLicense?.number || 'Pending'}</p>
+                          </div>
+                        </div>
+                        {selectedDriver.documents?.drivingLicense?.image ? (
+                          <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                            <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
+                            Uploaded
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
+                      {selectedDriver.documents?.drivingLicense?.image ? (
+                        <div className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50 aspect-video flex items-center justify-center">
+                          <img 
+                            src={resolveImageUrl(selectedDriver.documents.drivingLicense.image)} 
+                            alt="Driving License"
+                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                          />
+                          <div 
+                            onClick={() => {
+                              setSelectedDocument({ type: 'Commercial Driving License', url: resolveImageUrl(selectedDriver.documents?.drivingLicense?.image) });
+                              setShowDocumentModal(true);
+                            }}
+                            className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer text-white text-xs font-semibold gap-1.5"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>Preview DL</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center text-gray-400 text-xs">
+                          No DL image uploaded
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Bank & Payout Details */}
+                <div className="p-4 bg-gray-50/80 border border-gray-100 rounded-2xl space-y-2.5">
+                  <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
+                    Bank & Payout Details
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Account Holder</span>
+                      <p className="text-gray-900 font-semibold">{selectedDriver.bankDetails?.accountHolderName || `${selectedDriver.firstName} ${selectedDriver.lastName}`}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Bank Name</span>
+                      <p className="text-gray-900 font-semibold">{selectedDriver.bankDetails?.bankName || 'Pending'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">Account Number</span>
+                      <p className="text-gray-900 font-semibold font-mono">{selectedDriver.bankDetails?.accountNumber || 'Pending'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-gray-400 font-medium">IFSC Code</span>
+                      <p className="text-gray-900 font-semibold font-mono">{selectedDriver.bankDetails?.ifscCode || 'Pending'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 6. Terms Agreement & Compliance */}
+                <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Shield className="w-4 h-4 text-slate-600 shrink-0" />
+                    <div>
+                      <span className="font-semibold text-gray-900">Terms & Conditions Agreement: </span>
+                      <span className={selectedDriver.agreement?.isAccepted ? "text-emerald-700 font-semibold" : "text-amber-700 font-semibold"}>
+                        {selectedDriver.agreement?.isAccepted ? "Accepted & Bound" : "Pending Driver Signature"}
+                      </span>
+                    </div>
+                  </div>
+                  {selectedDriver.agreement?.acceptedAt && (
+                    <span className="text-[11px] text-gray-500">
+                      On {new Date(selectedDriver.agreement.acceptedAt).toLocaleString('en-IN')}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div className="p-4 bg-gray-50/90 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl">
+                <div className="flex items-center gap-2">
+                  {selectedDriver.status === 'suspended' ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        handleUnsuspendDriver(selectedDriver._id);
+                        setShowDriverDetails(false);
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9"
+                    >
+                      <UserCheck className="w-3.5 h-3.5 mr-1.5" />
+                      Unsuspend Driver
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        handleStatusChange(selectedDriver._id, 'suspended');
+                        setShowDriverDetails(false);
+                      }}
+                      className="text-red-600 border-red-200 hover:bg-red-50 text-xs h-9"
+                    >
+                      <UserX className="w-3.5 h-3.5 mr-1.5" />
+                      Suspend Driver
+                    </Button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowDriverDetails(false);
+                      handleEditDriver(selectedDriver);
+                    }}
+                    className="text-gray-700 border-gray-300 hover:bg-gray-100 text-xs h-9"
+                  >
+                    <Edit className="w-3.5 h-3.5 mr-1.5" />
+                    Edit Profile
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setShowDriverDetails(false)}
+                    className="bg-gray-900 hover:bg-black text-white text-xs h-9 px-4"
+                  >
+                    Close
+                  </Button>
+                </div>
               </div>
             </div>
           )}

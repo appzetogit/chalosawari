@@ -7,46 +7,15 @@ const asyncHandler = require('../middleware/asyncHandler');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 
+// Escape user search text before using it in $regex (avoids regex injection / ReDoS)
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Helper: normalize Indian phone to last 10 digits
 const normalizePhone = (phone) => {
   if (!phone) return '';
   const digits = String(phone).replace(/[^0-9]/g, '');
   return digits.slice(-10);
 };
-
-// @desc    Admin signup
-// @route   POST /api/admin/signup
-// @access  Public
-const adminSignup = asyncHandler(async (req, res) => {
-  const { firstName, lastName, phone, password, confirmPassword } = req.body;
-
-  if (password !== confirmPassword) {
-    return res.status(400).json({ success: false, message: 'Password and confirm password do not match' });
-  }
-
-  const normalizedPhone = normalizePhone(phone);
-
-  const existingAdmin = await Admin.findOne({ phone: normalizedPhone });
-  if (existingAdmin) {
-    return res.status(400).json({ success: false, message: 'Admin with this phone number already exists' });
-  }
-
-  const admin = await Admin.create({ firstName, lastName, phone: normalizedPhone, password });
-
-  const token = admin.getSignedJwtToken();
-  await admin.logActivity('signup', 'Admin account created', req.ip, req.get('User-Agent'));
-
-  return res.status(201).json({
-    success: true,
-    token,
-    admin: {
-      id: admin._id,
-      firstName: admin.firstName,
-      lastName: admin.lastName,
-      phone: admin.phone
-    }
-  });
-});
 
 // @desc    Admin login
 // @route   POST /api/admin/login
@@ -327,9 +296,9 @@ const getAllUsers = asyncHandler(async (req, res) => {
   
   if (search) {
     query.$or = [
-      { firstName: { $regex: search, $options: 'i' } },
-      { lastName: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } }
+      { firstName: { $regex: escapeRegex(search), $options: 'i' } },
+      { lastName: { $regex: escapeRegex(search), $options: 'i' } },
+      { phone: { $regex: escapeRegex(search), $options: 'i' } }
     ];
   }
   
@@ -705,9 +674,9 @@ const getAllDrivers = asyncHandler(async (req, res) => {
     
     if (search) {
       query.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+        { firstName: { $regex: escapeRegex(search), $options: 'i' } },
+        { lastName: { $regex: escapeRegex(search), $options: 'i' } },
+        { phone: { $regex: escapeRegex(search), $options: 'i' } }
       ];
     }
     
@@ -756,26 +725,45 @@ const getAllDrivers = asyncHandler(async (req, res) => {
         });
         
         // Get total earnings from completed trips
+        // Earnings = cash the driver actually collected from passengers
         const earningsResult = await Booking.aggregate([
-          { $match: { driver: driver._id, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$pricing.totalAmount' } } }
+          { $match: { driver: driver._id, 'payment.partialPaymentDetails.cashPaymentStatus': 'collected' } },
+          { $group: { _id: null, total: { $sum: '$payment.partialPaymentDetails.cashAmount' } } }
         ]);
         
         const totalEarnings = earningsResult.length > 0 ? earningsResult[0].total : 0;
         
-        // Get average rating
-        const ratingResult = await Booking.aggregate([
-          { $match: { driver: driver._id, 'ratings.driver': { $exists: true } } },
-          { $group: { _id: null, avgRating: { $avg: '$ratings.driver' } } }
-        ]);
-        
-        const averageRating = ratingResult.length > 0 ? ratingResult[0].avgRating : 0;
+        // Check if driver has an actual registered vehicle in Vehicle collection
+        const actualVehicle = await Vehicle.findOne({ driver: driver._id });
+        let vehicleInfo = null;
+        if (actualVehicle) {
+          vehicleInfo = {
+            _id: actualVehicle._id,
+            type: actualVehicle.type,
+            brand: actualVehicle.brand,
+            model: actualVehicle.model,
+            year: actualVehicle.year,
+            color: actualVehicle.color,
+            fuelType: actualVehicle.fuelType,
+            seatingCapacity: actualVehicle.seatingCapacity,
+            registrationNumber: actualVehicle.registrationNumber,
+            isAc: actualVehicle.isAc
+          };
+        } else if (
+          driver.vehicleDetails &&
+          driver.vehicleDetails.brand &&
+          driver.vehicleDetails.brand !== 'TBD' &&
+          driver.vehicleDetails.brand.trim() !== ''
+        ) {
+          vehicleInfo = driver.vehicleDetails;
+        }
         
         return {
           ...driver.toObject(),
+          vehicleDetails: vehicleInfo,
           totalRides: totalTrips,
           totalEarnings: totalEarnings,
-          rating: Math.round(averageRating * 10) / 10, // Round to 1 decimal place
+          rating: driver.rating || 0, // running average kept up to date when passengers rate trips
           completedTrips: completedTrips
         };
       })
@@ -803,8 +791,7 @@ const getAllDrivers = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const getDriverById = asyncHandler(async (req, res) => {
   const driver = await Driver.findById(req.params.id)
-    .select('-password')
-    .populate('vehicleDetails');
+    .select('-password');
 
   if (!driver) {
     return res.status(404).json({
@@ -820,22 +807,45 @@ const getDriverById = asyncHandler(async (req, res) => {
     status: 'completed' 
   });
   
+  // Earnings = cash the driver actually collected from passengers
   const earningsResult = await Booking.aggregate([
-    { $match: { driver: driver._id, status: 'completed' } },
-    { $group: { _id: null, total: { $sum: '$pricing.totalAmount' } } }
+    { $match: { driver: driver._id, 'payment.partialPaymentDetails.cashPaymentStatus': 'collected' } },
+    { $group: { _id: null, total: { $sum: '$payment.partialPaymentDetails.cashAmount' } } }
   ]);
   
   const totalEarnings = earningsResult.length > 0 ? earningsResult[0].total : 0;
   
-  const ratingResult = await Booking.aggregate([
-    { $match: { driver: driver._id, 'ratings.driver': { $exists: true } } },
-    { $group: { _id: null, avgRating: { $avg: '$ratings.driver' } } }
-  ]);
-  
-  const averageRating = ratingResult.length > 0 ? ratingResult[0].avgRating : 0;
+  // Running average kept up to date when passengers rate trips
+  const averageRating = driver.rating || 0;
+
+  // Check if driver has an actual registered vehicle in Vehicle collection
+  const actualVehicle = await Vehicle.findOne({ driver: driver._id });
+  let vehicleInfo = null;
+  if (actualVehicle) {
+    vehicleInfo = {
+      _id: actualVehicle._id,
+      type: actualVehicle.type,
+      brand: actualVehicle.brand,
+      model: actualVehicle.model,
+      year: actualVehicle.year,
+      color: actualVehicle.color,
+      fuelType: actualVehicle.fuelType,
+      seatingCapacity: actualVehicle.seatingCapacity,
+      registrationNumber: actualVehicle.registrationNumber,
+      isAc: actualVehicle.isAc
+    };
+  } else if (
+    driver.vehicleDetails &&
+    driver.vehicleDetails.brand &&
+    driver.vehicleDetails.brand !== 'TBD' &&
+    driver.vehicleDetails.brand.trim() !== ''
+  ) {
+    vehicleInfo = driver.vehicleDetails;
+  }
 
   const driverWithStats = {
     ...driver.toObject(),
+    vehicleDetails: vehicleInfo,
     totalRides: totalTrips,
     totalEarnings: totalEarnings,
     rating: Math.round(averageRating * 10) / 10,
@@ -899,6 +909,89 @@ const updateDriverStatus = asyncHandler(async (req, res) => {
     data: driver
   });
 });
+
+// @desc    Update driver full details by ID (Admin)
+// @route   PUT /api/admin/drivers/:id
+// @access  Private (Admin)
+const updateDriverById = asyncHandler(async (req, res) => {
+  const {
+    firstName,
+    lastName,
+    name,
+    email,
+    phone,
+    address,
+    bankDetails,
+    isApproved,
+    isVerified,
+    isActive
+  } = req.body;
+
+  const updateFields = {};
+
+  if (firstName !== undefined) updateFields.firstName = firstName;
+  if (lastName !== undefined) updateFields.lastName = lastName;
+
+  if (name && (firstName === undefined || lastName === undefined)) {
+    const parts = name.trim().split(' ');
+    updateFields.firstName = parts[0] || '';
+    updateFields.lastName = parts.slice(1).join(' ') || '';
+  }
+
+  if (email !== undefined) updateFields.email = email;
+  if (phone !== undefined) updateFields.phone = phone;
+
+  if (address !== undefined) {
+    updateFields.address = {
+      street: address.street || '',
+      city: address.city || '',
+      state: address.state || '',
+      pincode: address.pincode || '',
+      country: address.country || 'India'
+    };
+  }
+
+  if (bankDetails !== undefined) {
+    updateFields.bankDetails = {
+      accountHolderName: bankDetails.accountHolderName || '',
+      bankName: bankDetails.bankName || '',
+      accountNumber: bankDetails.accountNumber || '',
+      ifscCode: bankDetails.ifscCode ? bankDetails.ifscCode.toUpperCase() : ''
+    };
+  }
+
+  if (isApproved !== undefined) updateFields.isApproved = isApproved;
+  if (isVerified !== undefined) updateFields.isVerified = isVerified;
+  if (isActive !== undefined) updateFields.isActive = isActive;
+
+  const driver = await Driver.findByIdAndUpdate(
+    req.params.id,
+    updateFields,
+    { new: true, runValidators: true }
+  ).select('-password');
+
+  if (!driver) {
+    return res.status(404).json({
+      success: false,
+      message: 'Driver not found'
+    });
+  }
+
+  // Log activity
+  if (req.admin && req.admin.id) {
+    const admin = await Admin.findById(req.admin.id);
+    if (admin) {
+      await admin.logActivity('driver_update', `Driver ${driver.firstName} ${driver.lastName} details updated`, req.ip, req.get('User-Agent'));
+    }
+  }
+
+  res.json({
+    success: true,
+    message: 'Driver updated successfully',
+    data: driver
+  });
+});
+
 
 // @desc    Create new driver (Admin)
 // @route   POST /api/admin/drivers
@@ -1139,9 +1232,9 @@ const getAllVehicles = asyncHandler(async (req, res) => {
   
   if (search) {
     query.$or = [
-      { brand: { $regex: search, $options: 'i' } },
-      { model: { $regex: search, $options: 'i' } },
-      { registrationNumber: { $regex: search, $options: 'i' } }
+      { brand: { $regex: escapeRegex(search), $options: 'i' } },
+      { model: { $regex: escapeRegex(search), $options: 'i' } },
+      { registrationNumber: { $regex: escapeRegex(search), $options: 'i' } }
     ];
   }
   
@@ -1189,13 +1282,8 @@ const getAllVehicles = asyncHandler(async (req, res) => {
       
       const totalDistance = distanceResult.length > 0 ? distanceResult[0].total : 0;
       
-      // Get average rating for this vehicle
-      const ratingResult = await Booking.aggregate([
-        { $match: { vehicle: vehicle._id, 'ratings.vehicle': { $exists: true } } },
-        { $group: { _id: null, avgRating: { $avg: '$ratings.vehicle' } } }
-      ]);
-      
-      const averageRating = ratingResult.length > 0 ? ratingResult[0].avgRating : 0;
+      // Vehicle.addRating keeps this average up to date when passengers rate trips
+      const averageRating = vehicle.ratings?.average || 0;
 
       return {
         ...vehicle.toObject(),
@@ -1492,260 +1580,103 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Create payment record for booking if it doesn't exist
-// @access  Private
-const createPaymentRecordIfNeeded = async (booking) => {
-  const Payment = require('../models/Payment');
-  
-  // Check if payment record already exists
-  let payment = await Payment.findOne({ booking: booking._id });
-  
-  if (!payment) {
-    // Create a new payment record for the booking
-    payment = new Payment({
-      user: booking.user,
-      booking: booking._id,
-      amount: booking.pricing.totalAmount,
-      currency: 'INR',
-      method: 'cash', // Default to cash if no payment method specified
-      status: 'completed', // Mark as completed since the booking was made
-      type: 'booking',
-      paymentGateway: 'internal',
-      transactionId: `CASH_${Date.now()}`,
-      paymentDetails: {
-        notes: 'Payment record created for refund processing'
-      },
-      timestamps: {
-        initiated: booking.createdAt,
-        completed: booking.createdAt
-      }
-    });
-    
-    await payment.save();
-    console.log('Created payment record for booking:', booking._id);
-  }
-  
-  return payment;
-};
-
 // @desc    Process refund for cancelled booking
 // @route   POST /api/admin/bookings/:id/refund
 // @access  Private (Admin)
 const processRefund = asyncHandler(async (req, res) => {
-  const { refundMethod, refundReason, adminNotes } = req.body;
+  const Payment = require('../models/Payment');
+  const RazorpayService = require('../services/razorpayService');
 
-  const booking = await Booking.findById(req.params.id)
-    .populate(['user', 'driver', 'vehicle']);
-
+  const booking = await Booking.findById(req.params.id);
   if (!booking) {
-    return res.status(404).json({
-      success: false,
-      message: 'Booking not found'
-    });
+    return res.status(404).json({ success: false, message: 'Booking not found' });
   }
-
   if (booking.status !== 'cancelled') {
-    return res.status(400).json({
-      success: false,
-      message: 'Refund can only be processed for cancelled bookings'
-    });
+    return res.status(400).json({ success: false, message: 'Refund can only be processed for cancelled bookings' });
+  }
+  if (booking.cancellation?.refundStatus === 'completed') {
+    return res.status(400).json({ success: false, message: 'Refund has already been processed for this booking' });
   }
 
-  if (booking.cancellation.refundStatus === 'completed') {
-    return res.status(400).json({
-      success: false,
-      message: 'Refund has already been processed for this booking'
-    });
-  }
+  // Refund exactly what this booking's Razorpay payment collected (the advance or full amount)
+  const payment = await Payment.findOne({ booking: booking._id, paymentGateway: 'razorpay', status: 'completed' });
+  const reason = req.body.refundReason || booking.cancellation?.reason || 'Booking cancelled';
+  let refundAmount = 0;
+  let refundMethod = 'manual';
 
-  try {
-    let refundResult = null;
-    let paymentUpdate = null;
-
-    if (refundMethod === 'razorpay') {
-      // Process refund through Razorpay
-      const RazorpayService = require('../services/razorpayService');
-      
-      // Find the payment record - try multiple approaches
-      const Payment = require('../models/Payment');
-      let payment = await Payment.findOne({ 
-        booking: booking._id, 
-        status: 'completed'
-      });
-
-      // If no direct payment found, try to find by booking number or other identifiers
-      if (!payment) {
-        payment = await Payment.findOne({
-          $or: [
-            { booking: booking._id },
-            { 'paymentDetails.razorpayOrderId': { $exists: true, $ne: null } },
-            { transactionId: { $exists: true, $ne: null } }
-          ],
-          status: { $in: ['completed', 'processing'] }
-        });
-      }
-
-      // If still no payment found, check if this is a cash booking
-      if (!payment) {
-        // Create a payment record if none exists
-        payment = await createPaymentRecordIfNeeded(booking);
-        
-        // For cash bookings or bookings without online payment, create a manual refund
-        refundResult = {
-          refundId: `MANUAL_${Date.now()}`,
-          status: 'processed',
-          amount: booking.pricing.totalAmount,
-          notes: 'Manual refund for cash booking or driver cancellation'
-        };
-
-        // Update payment record with refund information
-        payment.refund = {
-          amount: booking.pricing.totalAmount,
-          reason: refundReason || 'Booking cancelled by driver',
-          refundedAt: new Date(),
-          refundId: refundResult.refundId,
-          gatewayRefundId: null
-        };
-        payment.status = 'refunded';
-        payment.timestamps.refunded = new Date();
-        await payment.save();
-
-        // Update booking refund status
-        booking.cancellation.refundStatus = 'completed';
-        booking.cancellation.refundMethod = 'manual';
-        booking.cancellation.refundCompletedAt = new Date();
-        await booking.save();
-
-        // Log admin activity
-        const admin = await Admin.findById(req.admin.id);
-        await admin.logActivity('refund_processed', 
-          `Manual refund processed for booking ${booking._id} - Amount: ₹${booking.pricing.totalAmount}`, 
-          req.ip, 
-          req.get('User-Agent')
-        );
-
-        return res.json({
-          success: true,
-          message: 'Manual refund processed successfully for cash booking',
-          data: {
-            booking: booking._id,
-            refundAmount: booking.pricing.totalAmount,
-            refundMethod: 'manual',
-            refundId: refundResult.refundId,
-            status: 'completed'
-          }
-        });
-      }
-
-      // Process refund through Razorpay
-      if (payment.paymentDetails && payment.paymentDetails.razorpayPaymentId) {
-        try {
-          refundResult = await RazorpayService.processRefund(
-            payment.paymentDetails.razorpayPaymentId,
-            booking.pricing.totalAmount,
-            refundReason || 'Booking cancelled by driver'
-          );
-        } catch (razorpayError) {
-          console.error('Razorpay refund failed:', razorpayError);
-          // Fallback to manual refund if Razorpay fails
-          refundResult = {
-            refundId: `MANUAL_${Date.now()}`,
-            status: 'processed',
-            amount: booking.pricing.totalAmount,
-            notes: 'Manual refund due to Razorpay failure'
-          };
-        }
-
-        // Update payment record
-        payment.refund = {
-          amount: booking.pricing.totalAmount,
-          reason: refundReason || 'Booking cancelled by driver',
-          refundedAt: new Date(),
-          refundId: refundResult.refundId,
-          gatewayRefundId: refundResult.refundId
-        };
-        payment.status = 'refunded';
-        payment.timestamps.refunded = new Date();
-        await payment.save();
-      }
-
-      // Update booking refund status
-      booking.cancellation.refundStatus = 'completed';
-      booking.cancellation.refundMethod = refundMethod;
-      booking.cancellation.refundCompletedAt = new Date();
-      await booking.save();
-
-    } else if (refundMethod === 'manual') {
-      // Manual refund processing
-      const Payment = require('../models/Payment');
-      let payment = await Payment.findOne({ 
-        booking: booking._id, 
-        status: 'completed'
-      });
-
-      // If no payment record exists, create one
-      if (!payment) {
-        payment = await createPaymentRecordIfNeeded(booking);
-      }
-
-      // Update payment record with refund information
-      payment.refund = {
-        amount: booking.pricing.totalAmount,
-        reason: refundReason || 'Manual refund by admin',
-        refundedAt: new Date(),
-        refundId: `MANUAL_${Date.now()}`,
-        gatewayRefundId: null
-      };
-      payment.status = 'refunded';
-      payment.timestamps.refunded = new Date();
-      await payment.save();
-
-      // Update booking refund status
-      booking.cancellation.refundStatus = 'completed';
-      booking.cancellation.refundMethod = 'manual';
-      booking.cancellation.refundCompletedAt = new Date();
-      await booking.save();
-
-      refundResult = {
-        refundId: `MANUAL_${Date.now()}`,
-        amount: booking.pricing.totalAmount,
-        notes: 'Manual refund processed by admin'
-      };
+  if (payment) {
+    let refund;
+    try {
+      refund = await RazorpayService.processRefund(payment.transactionId, payment.amount, reason);
+    } catch (error) {
+      console.error(`Razorpay refund failed for booking ${booking._id}:`, error.message);
+      return res.status(502).json({ success: false, message: `Razorpay refund failed: ${error.message}` });
     }
-
-    // Log admin activity
-    const admin = await Admin.findById(req.admin.id);
-    await admin.logActivity('refund_processed', 
-      `Refund processed for booking ${booking._id} via ${refundMethod}`, 
-      req.ip, 
-      req.get('User-Agent')
-    );
-
-    res.json({
-      success: true,
-      message: `Refund processed successfully via ${refundMethod}`,
-      data: {
-        booking: booking._id,
-        refundAmount: booking.pricing.totalAmount,
-        refundMethod,
-        refundId: refundResult.refundId,
-        status: 'completed'
-      }
-    });
-
-  } catch (error) {
-    console.error('Refund processing error:', error);
-    res.status(500).json({
-      success: false,
-      message: `Refund processing failed: ${error.message}`
-    });
+    await payment.processRefund(payment.amount, reason, refund.refundId);
+    refundAmount = payment.amount;
+    refundMethod = 'razorpay';
   }
+
+  booking.cancellation.refundAmount = refundAmount;
+  booking.cancellation.refundStatus = 'completed';
+  booking.cancellation.refundMethod = refundMethod;
+  booking.cancellation.refundCompletedAt = new Date();
+  await booking.save();
+
+  const admin = await Admin.findById(req.admin.id);
+  await admin.logActivity('refund_processed', `Refunded ₹${refundAmount} for booking ${booking.bookingNumber}`, req.ip, req.get('User-Agent'));
+
+  res.json({
+    success: true,
+    message: refundAmount > 0 ? `₹${refundAmount} refunded to the customer` : 'Nothing was paid online; marked as refunded',
+    data: { booking: booking._id, refundAmount, refundMethod, status: 'completed' }
+  });
+});
+
+// @desc    Cancel a booking (admin). Refund is done separately via POST /bookings/:id/refund
+// @route   PUT /api/admin/bookings/:id/cancel
+// @access  Private (Admin)
+const adminCancelBooking = asyncHandler(async (req, res) => {
+  const booking = await Booking.findById(req.params.id);
+  if (!booking) {
+    return res.status(404).json({ success: false, message: 'Booking not found' });
+  }
+  if (['completed', 'cancelled'].includes(booking.status)) {
+    return res.status(400).json({ success: false, message: `A ${booking.status} booking cannot be cancelled` });
+  }
+
+  // What the customer actually paid online is what can be refunded
+  const partial = booking.payment?.isPartialPayment ? booking.payment.partialPaymentDetails : null;
+  const paidOnline = partial
+    ? (partial.onlinePaymentStatus === 'completed' ? partial.onlineAmount : 0)
+    : (booking.payment?.status === 'completed' ? (booking.payment.amount || booking.pricing.totalAmount) : 0);
+
+  booking._updatedByModel = 'Admin';
+  booking._updatedBy = req.admin.id;
+  booking._statusReason = req.body.reason || 'Cancelled by admin';
+  booking.status = 'cancelled';
+  booking.cancellation = {
+    ...(booking.cancellation?.toObject ? booking.cancellation.toObject() : booking.cancellation),
+    cancelledBy: req.admin.id,
+    cancelledByModel: 'Admin',
+    cancelledAt: new Date(),
+    reason: req.body.reason || 'Cancelled by admin',
+    refundAmount: paidOnline,
+    refundStatus: 'pending'
+  };
+  await booking.save();
+
+  const admin = await Admin.findById(req.admin.id);
+  await admin.logActivity('booking_cancelled', `Booking ${booking.bookingNumber} cancelled by admin`, req.ip, req.get('User-Agent'));
+
+  res.json({ success: true, message: 'Booking cancelled', data: booking });
 });
 
 // @desc    Get booking payment details
 // @route   GET /api/admin/bookings/:id/payment
 // @access  Private (Admin)
 const getBookingPaymentDetails = asyncHandler(async (req, res) => {
+  const Payment = require('../models/Payment');
   const booking = await Booking.findById(req.params.id)
     .populate(['user', 'driver', 'vehicle']);
 
@@ -1756,66 +1687,51 @@ const getBookingPaymentDetails = asyncHandler(async (req, res) => {
     });
   }
 
-  // Extract payment information from the booking
-  const paymentInfo = {
-    _id: booking._id,
-    amount: booking.pricing.totalAmount,
-    method: booking.payment.method,
-    status: booking.payment.status,
-    transactionId: booking.payment.transactionId,
-    paymentDetails: {
-      razorpayOrderId: booking.payment.partialPaymentDetails?.onlinePaymentId || null,
-      razorpayPaymentId: booking.payment.transactionId || null,
-      razorpaySignature: null
-    },
-    refund: null,
-    createdAt: booking.createdAt
-  };
+  // The Razorpay payment the booking was paid with (Razorpay ids, UPI/card, refund)
+  const online = await Payment.findOne({ booking: booking._id, paymentGateway: 'razorpay' }).sort({ createdAt: 1 });
+  const razorpayPaymentId = booking.payment.transactionId || online?.transactionId || null;
 
-  // If it's a partial payment, create separate payment records for online and cash portions
-  let payments = [];
-  
-  if (booking.payment.isPartialPayment && booking.payment.partialPaymentDetails) {
-    const { onlineAmount, cashAmount, onlinePaymentStatus, cashPaymentStatus, onlinePaymentId } = booking.payment.partialPaymentDetails;
-    
-    // Online payment record
-    if (onlineAmount > 0) {
-      payments.push({
-        _id: `online_${booking._id}`,
-        amount: onlineAmount,
-        method: 'razorpay',
-        status: onlinePaymentStatus,
-        transactionId: onlinePaymentId,
-        paymentDetails: {
-          razorpayOrderId: onlinePaymentId,
-          razorpayPaymentId: onlinePaymentId,
-          razorpaySignature: null
-        },
-        refund: null,
-        createdAt: booking.createdAt
-      });
-    }
-    
-    // Cash payment record
-    if (cashAmount > 0) {
-      payments.push({
-        _id: `cash_${booking._id}`,
-        amount: cashAmount,
-        method: 'cash',
-        status: cashPaymentStatus === 'collected' ? 'completed' : 'pending',
-        transactionId: null,
-        paymentDetails: {},
-        refund: null,
-        createdAt: booking.createdAt
-      });
-    }
+  const onlineRecord = (label, amount, status) => ({
+    _id: `online_${booking._id}`,
+    label,
+    amount,
+    method: 'razorpay',
+    paidVia: online?.paymentDetails?.method || null, // upi / card / netbanking
+    status,
+    transactionId: razorpayPaymentId,
+    paymentDetails: {
+      razorpayOrderId: online?.paymentDetails?.razorpayOrderId || null,
+      razorpayPaymentId
+    },
+    refund: online?.refund?.refundId ? online.refund : null,
+    createdAt: status === 'completed' ? (online?.createdAt || booking.createdAt) : null
+  });
+
+  const payments = [];
+  const partial = booking.payment.isPartialPayment ? booking.payment.partialPaymentDetails : null;
+
+  if (partial) {
+    payments.push(onlineRecord('Advance Payment', partial.onlineAmount, partial.onlinePaymentStatus));
+
+    // Remaining part is cash to the driver; no method/date until it is actually collected
+    const collected = partial.cashPaymentStatus === 'collected';
+    payments.push({
+      _id: `cash_${booking._id}`,
+      label: 'Remaining Payment',
+      amount: partial.cashAmount,
+      method: collected ? 'cash' : null,
+      status: collected ? 'completed' : 'pending',
+      transactionId: null,
+      paymentDetails: {},
+      refund: null,
+      createdAt: collected ? (partial.cashCollectedAt || null) : null
+    });
   } else {
-    // Single payment record
-    payments.push(paymentInfo);
+    payments.push(onlineRecord('Full Payment', booking.pricing.totalAmount, booking.payment.status));
   }
 
   // Check if refund can be processed
-  const canProcessRefund = booking.status === 'cancelled' && 
+  const canProcessRefund = booking.status === 'cancelled' &&
                            booking.cancellation?.refundStatus === 'pending';
 
   res.json({
@@ -2070,14 +1986,13 @@ const deleteDriverDocument = asyncHandler(async (req, res) => {
     });
   }
 
-  // Delete from Cloudinary if exists
+  // Delete from local storage if exists
   if (driver.documents.vehicleRC.image) {
     const { deleteDocument } = require('../utils/driverDocumentUpload');
     try {
-      const publicId = driver.documents.vehicleRC.image.split('/').pop().split('.')[0];
-      await deleteDocument(publicId);
+      await deleteDocument(driver.documents.vehicleRC.image);
     } catch (error) {
-      console.error('Error deleting document from Cloudinary:', error);
+      console.error('Error deleting document from storage:', error);
     }
   }
 
@@ -2112,14 +2027,13 @@ const deleteDriverInsuranceDocument = asyncHandler(async (req, res) => {
     });
   }
 
-  // Delete from Cloudinary if exists
+  // Delete from local storage if exists
   if (driver.documents.insurance.image) {
     const { deleteDocument } = require('../utils/driverDocumentUpload');
     try {
-      const publicId = driver.documents.insurance.image.split('/').pop().split('.')[0];
-      await deleteDocument(publicId);
+      await deleteDocument(driver.documents.insurance.image);
     } catch (error) {
-      console.error('Error deleting document from Cloudinary:', error);
+      console.error('Error deleting document from storage:', error);
     }
   }
 
@@ -2541,7 +2455,7 @@ const completeRefund = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  adminSignup,
+  adminCancelBooking,
   adminLogin,
   getAdminProfile,
   updateAdminProfile,
@@ -2557,6 +2471,7 @@ module.exports = {
   bulkDeleteUsers,
   getAllDrivers,
   getDriverById,
+  updateDriverById,
   updateDriverStatus,
   createDriver,
   deleteDriver,

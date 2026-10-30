@@ -40,7 +40,8 @@ import {
   Square,
   ChevronDown,
   ChevronUp,
-  Download
+  Download,
+  Tag
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { adminBookings } from "@/services/adminApi";
@@ -93,6 +94,9 @@ interface Booking {
     ratePerKm: number;
     totalAmount: number;
     tripType: 'one-way' | 'return';
+    discount?: number;
+    couponCode?: string;
+    platformFee?: number;
   };
   status: 'pending' | 'accepted' | 'started' | 'completed' | 'cancelled' | 'cancellation_requested';
   payment: {
@@ -137,8 +141,10 @@ interface PaymentDetails {
   booking: Booking;
   payments: Array<{
     _id: string;
+    label?: string; // Advance Payment / Remaining Payment / Full Payment
     amount: number;
-    method: string;
+    method: string | null; // null while remaining cash is not collected yet
+    paidVia?: string | null; // upi / card / netbanking
     status: string;
     transactionId?: string;
     paymentDetails: {
@@ -163,7 +169,7 @@ const AdminBookingManagement = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   // Helper function to get pricing - use stored booking price instead of recalculating
-  const getBookingPricing = (booking) => {
+  const getBookingPricing = (booking: any) => {
     // Use the stored booking price instead of recalculating
     // This ensures consistency with the original booking amount
     if (booking.pricing && booking.pricing.totalAmount) {
@@ -171,6 +177,9 @@ const AdminBookingManagement = () => {
         ...booking.pricing,
         totalAmount: booking.pricing.totalAmount,
         ratePerKm: booking.pricing.ratePerKm || 0,
+        discount: booking.pricing.discount || 0,
+        couponCode: booking.pricing.couponCode || '',
+        platformFee: booking.pricing.platformFee || 0,
         distance: booking.tripDetails?.distance || 0,
         tripType: booking.tripDetails?.tripType || 'one-way'
       };
@@ -180,11 +189,13 @@ const AdminBookingManagement = () => {
     return {
       totalAmount: 0,
       ratePerKm: 0,
+      discount: 0,
+      couponCode: '',
+      platformFee: 0,
       distance: booking.tripDetails?.distance || 0,
       tripType: booking.tripDetails?.tripType || 'one-way'
     };
   };
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filteredBookings, setFilteredBookings] = useState<Booking[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -192,10 +203,10 @@ const AdminBookingManagement = () => {
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [routeBooking, setRouteBooking] = useState<Booking | null>(null); // booking whose pickup/drop modal is open
   const [showBookingDetails, setShowBookingDetails] = useState(false);
   const [showPaymentDetails, setShowPaymentDetails] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
-  const [showStatusUpdateModal, setShowStatusUpdateModal] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -208,11 +219,6 @@ const AdminBookingManagement = () => {
   const [isProcessingRefund, setIsProcessingRefund] = useState(false);
 
   // Status update form state
-  const [newStatus, setNewStatus] = useState<string>('');
-  const [statusReason, setStatusReason] = useState('');
-  const [statusNotes, setStatusNotes] = useState('');
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
   useEffect(() => {
     loadBookings();
@@ -520,10 +526,14 @@ const AdminBookingManagement = () => {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR'
-    }).format(amount);
+    const num = Number(amount) || 0;
+    if (Number.isInteger(num)) {
+      return `₹${num.toLocaleString('en-IN')}`;
+    }
+    return `₹${Number(num.toFixed(2)).toLocaleString('en-IN', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 2
+    })}`;
   };
 
   const getPaymentStatusDisplay = (booking: Booking) => {
@@ -597,33 +607,6 @@ const AdminBookingManagement = () => {
     setShowRefundModal(true);
   };
 
-  const handleMarkCashCollected = async (booking: Booking) => {
-    try {
-      const response = await adminBookings.markCashCollected(booking._id);
-      
-      if (response.success) {
-        toast({
-          title: "Success",
-          description: "Cash payment marked as collected successfully",
-        });
-        loadBookings(); // Refresh the list
-      } else {
-        toast({
-          title: "Error",
-          description: response.message || "Failed to mark cash as collected",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      console.error('Error marking cash as collected:', error);
-      toast({
-        title: "Error",
-        description: "Failed to mark cash as collected. Please try again.",
-        variant: "destructive"
-      });
-    }
-  };
-
   const handleApproveCancellation = async (booking: Booking) => {
     try {
       const response = await adminBookings.approveCancellationRequest(booking._id);
@@ -679,19 +662,16 @@ const AdminBookingManagement = () => {
   };
 
   const handleInitiateRefund = async (booking: Booking) => {
+    const amount = booking.cancellation?.refundAmount || 0;
+    if (!window.confirm(`Refund ₹${amount} to the customer for booking ${booking.bookingNumber}?`)) return;
     try {
-      // Use processRefund instead of initiateRefund for actual refund processing
-      const response = await adminBookings.processRefund(
-        booking._id, 
-        'razorpay', 
-        'Driver cancelled trip', 
-        'Refund processed for driver cancellation'
-      );
-      
+      // Refunds exactly what the customer paid online via Razorpay
+      const response = await adminBookings.processRefund(booking._id, 'razorpay', 'Booking cancelled by admin');
+
       if (response.success) {
         toast({
-          title: "Success",
-          description: "Refund processed successfully",
+          title: "Refunded",
+          description: response.message || "Refund processed successfully",
         });
         loadBookings(); // Refresh the list
       } else {
@@ -721,76 +701,22 @@ const AdminBookingManagement = () => {
     }
   };
 
-  const handleCompleteRefund = async (booking: Booking) => {
+  const handleCancelBooking = async (booking: Booking) => {
+    if (!window.confirm(`Cancel booking ${booking.bookingNumber}? You can refund the customer after cancelling.`)) return;
     try {
-      const response = await adminBookings.completeRefund(booking._id);
-      
+      const response = await adminBookings.cancel(booking._id, 'Cancelled by admin');
       if (response.success) {
-        toast({
-          title: "Success",
-          description: "Refund marked as completed successfully",
-        });
-        loadBookings(); // Refresh the list
+        toast({ title: "Booking Cancelled", description: "Use the refund button to return the customer's payment." });
+        loadBookings();
       } else {
-        toast({
-          title: "Error",
-          description: response.message || "Failed to complete refund",
-          variant: "destructive"
-        });
+        toast({ title: "Error", description: response.message || "Failed to cancel booking", variant: "destructive" });
       }
-    } catch (error) {
-      console.error('Error completing refund:', error);
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to complete refund. Please try again.",
+        description: error.response?.data?.message || "Failed to cancel booking. Please try again.",
         variant: "destructive"
       });
-    }
-  };
-
-  const handleStatusUpdate = (booking: Booking) => {
-    setSelectedBooking(booking);
-    setNewStatus(booking.status);
-    setShowStatusUpdateModal(true);
-  };
-
-  const updateBookingStatus = async () => {
-    if (!selectedBooking || !newStatus) return;
-
-    try {
-      setIsUpdatingStatus(true);
-      const response = await adminBookings.updateStatus(
-        selectedBooking._id,
-        newStatus,
-        statusReason,
-        statusNotes
-      );
-
-      if (response.success) {
-        toast({
-          title: "Success",
-          description: `Booking status updated to ${newStatus} successfully`,
-        });
-        setShowStatusUpdateModal(false);
-        setStatusReason('');
-        setStatusNotes('');
-        loadBookings(); // Refresh the list
-      } else {
-        toast({
-          title: "Error",
-          description: response.message || "Failed to update booking status",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      console.error('Error updating booking status:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update booking status. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsUpdatingStatus(false);
     }
   };
 
@@ -832,12 +758,6 @@ const AdminBookingManagement = () => {
     } finally {
       setIsProcessingRefund(false);
     }
-  };
-
-  const refreshBookings = async () => {
-    setIsRefreshing(true);
-    await loadBookings();
-    setIsRefreshing(false);
   };
 
   const exportToExcel = async () => {
@@ -886,6 +806,8 @@ const AdminBookingManagement = () => {
         'Duration (min)': booking.tripDetails.duration,
         'Rate per km': formatCurrency(getBookingPricing(booking).ratePerKm),
         'Total Amount': formatCurrency(getBookingPricing(booking).totalAmount),
+        'Discount': getBookingPricing(booking).discount ? formatCurrency(getBookingPricing(booking).discount) : 'N/A',
+        'Coupon Code': getBookingPricing(booking).couponCode || 'N/A',
         'Trip Type': booking.pricing.tripType,
         'Payment Method': booking.payment.method,
         'Payment Status': booking.payment.status,
@@ -1020,34 +942,6 @@ const AdminBookingManagement = () => {
                 </div>
               </div>
               <div className="mt-4 lg:mt-0 lg:ml-4 flex flex-col sm:flex-row gap-3">
-                <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1">
-                  <Button
-                    variant={viewMode === 'cards' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('cards')}
-                    className="h-8 px-2 sm:px-3"
-                  >
-                    <div className="grid grid-cols-2 gap-1 w-4 h-4">
-                      <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                      <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                      <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                      <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                    </div>
-                  </Button>
-                  <Button
-                    variant={viewMode === 'table' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('table')}
-                    className="h-8 px-2 sm:px-3"
-                  >
-                    <div className="flex flex-col gap-0.5 w-4 h-4">
-                      <div className="w-full h-0.5 bg-current rounded-sm"></div>
-                      <div className="w-full h-0.5 bg-current rounded-sm"></div>
-                      <div className="w-full h-0.5 bg-current rounded-sm"></div>
-                      <div className="w-full h-0.5 bg-current rounded-sm"></div>
-                    </div>
-                  </Button>
-                </div>
                 <Button
                   onClick={exportToExcel}
                   className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-200 w-full sm:w-auto"
@@ -1056,263 +950,13 @@ const AdminBookingManagement = () => {
                   <span className="hidden sm:inline">Export to Excel</span>
                   <span className="sm:hidden">Export</span>
                 </Button>
-                <Button
-                  onClick={refreshBookings}
-                  disabled={isRefreshing}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-200 w-full sm:w-auto"
-                >
-                  {isRefreshing ? (
-                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin mr-2" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                  )}
-                  <span className="hidden sm:inline">Refresh Data</span>
-                  <span className="sm:hidden">Refresh</span>
-                </Button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Enhanced Statistics Cards */}
+        {/* Bookings Table */}
         <div className="px-4 sm:px-6 py-6 sm:py-8">
-          <div className="max-w-7xl mx-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6">
-              {/* Total Bookings Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">Total Bookings</p>
-                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.total}</p>
-                    <p className="text-xs text-gray-500 mt-1">All time bookings</p>
-                  </div>
-                  <div className="p-2 sm:p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl">
-                    <Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Pending Bookings Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">Pending</p>
-                    <p className="text-2xl sm:text-3xl font-bold text-yellow-600">{stats.pending}</p>
-                    <p className="text-xs text-gray-500 mt-1">Awaiting confirmation</p>
-                  </div>
-                  <div className="p-2 sm:p-3 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl">
-                    <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Completed Bookings Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">Completed</p>
-                    <p className="text-2xl sm:text-3xl font-bold text-green-600">{stats.completed}</p>
-                    <p className="text-xs text-gray-500 mt-1">Successful trips</p>
-                  </div>
-                  <div className="p-2 sm:p-3 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl">
-                    <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Paid Bookings Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">Paid</p>
-                    <p className="text-2xl sm:text-3xl font-bold text-purple-600">{stats.paid}</p>
-                    <p className="text-xs text-gray-500 mt-1">Revenue collected</p>
-                  </div>
-                  <div className="p-2 sm:p-3 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl">
-                    <DollarSign className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Partial Payment Bookings Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">Partial Payments</p>
-                    <p className="text-2xl sm:text-3xl font-bold text-orange-600">{stats.partialPayments}</p>
-                    <p className="text-xs text-gray-500 mt-1">Split payment bookings</p>
-                  </div>
-                  <div className="p-2 sm:p-3 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl">
-                    <DollarSign className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Cancellation Requests Card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1">Cancellation Requests</p>
-                    <p className="text-2xl sm:text-3xl font-bold text-red-600">{stats.cancellationRequests}</p>
-                    <p className="text-xs text-gray-500 mt-1">Pending approval</p>
-                  </div>
-                  <div className="p-2 sm:p-3 bg-gradient-to-br from-red-500 to-pink-500 rounded-xl">
-                    <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Partial Payment Summary */}
-        {bookings.filter(b => b.payment.isPartialPayment).length > 0 && (
-          <div className="px-4 sm:px-6 py-4">
-            <div className="max-w-7xl mx-auto">
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 sm:p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <DollarSign className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <h3 className="text-base sm:text-lg font-semibold text-blue-900">Partial Payment Summary</h3>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                  <div className="bg-white rounded-xl p-3 sm:p-4 border border-blue-200">
-                    <div className="text-xs sm:text-sm font-medium text-blue-700 mb-1">Total Partial Payments</div>
-                    <div className="text-xl sm:text-2xl font-bold text-blue-900">{bookings.filter(b => b.payment.isPartialPayment).length}</div>
-                    <div className="text-xs text-blue-600 mt-1">Split payment bookings</div>
-                  </div>
-                  <div className="bg-white rounded-xl p-3 sm:p-4 border border-blue-200">
-                    <div className="text-xs sm:text-sm font-medium text-blue-700 mb-1">Pending Cash Collection</div>
-                    <div className="text-xl sm:text-2xl font-bold text-orange-600">{bookings.filter(b => b.payment.isPartialPayment && b.payment.partialPaymentDetails?.cashPaymentStatus === 'pending').length}</div>
-                    <div className="text-xs text-blue-600 mt-1">Awaiting cash collection</div>
-                  </div>
-                  <div className="bg-white rounded-xl p-3 sm:p-4 border border-blue-200">
-                    <div className="text-xs sm:text-sm font-medium text-blue-700 mb-1">Completed Partial Payments</div>
-                    <div className="text-xl sm:text-2xl font-bold text-green-600">{bookings.filter(b => b.payment.isPartialPayment && b.payment.partialPaymentDetails?.cashPaymentStatus === 'collected').length}</div>
-                    <div className="text-xs text-blue-600 mt-1">Fully collected</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Enhanced Filters and Search Section */}
-        <div className="px-4 sm:px-6 pb-6 sm:pb-8">
-          <div className="max-w-7xl mx-auto">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900">Advanced Filters</h3>
-                <div className="flex items-center gap-2">
-                  <Button
-                    onClick={exportToExcel}
-                    className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-200"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Export to Excel
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setSearchTerm('');
-                      setStatusFilter('all');
-                      setPaymentFilter('all');
-                      setDateFilter('all');
-                    }}
-                    className="text-gray-600 hover:text-gray-800 w-full sm:w-auto"
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Clear All
-                  </Button>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                {/* Search Input */}
-                <div className="space-y-2">
-                  <Label htmlFor="search" className="text-sm font-medium text-gray-700">Search Bookings</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
-                    <Input
-                      id="search"
-                      placeholder="Booking #, customer, driver..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                      className="pl-10 h-10 sm:h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm sm:text-base"
-                    />
-                  </div>
-                </div>
-
-                {/* Status Filter */}
-                <div className="space-y-2">
-                  <Label htmlFor="status" className="text-sm font-medium text-gray-700">Booking Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="h-10 sm:h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm sm:text-base">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="pending">⏳ Pending</SelectItem>
-                      <SelectItem value="accepted">✅ Accepted</SelectItem>
-                      <SelectItem value="started">🚗 Started</SelectItem>
-                      <SelectItem value="completed">🎉 Completed</SelectItem>
-                      <SelectItem value="cancellation_requested">🔄 Cancellation Requested</SelectItem>
-                      <SelectItem value="cancelled">❌ Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Payment Filter */}
-                <div className="space-y-2">
-                  <Label htmlFor="payment" className="text-sm font-medium text-gray-700">Payment Status</Label>
-                  <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-                    <SelectTrigger className="h-10 sm:h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm sm:text-base">
-                      <SelectValue placeholder="Select payment status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Payments</SelectItem>
-                      <SelectItem value="pending">⏳ Pending</SelectItem>
-                      <SelectItem value="completed">✅ Completed</SelectItem>
-                      <SelectItem value="failed">❌ Failed</SelectItem>
-                      <SelectItem value="partial">💰 Partial Payment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Date Filter */}
-                <div className="space-y-2">
-                  <Label htmlFor="date" className="text-sm font-medium text-gray-700">Date Range</Label>
-                  <Select value={dateFilter} onValueChange={setDateFilter}>
-                    <SelectTrigger className="h-10 sm:h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm sm:text-base">
-                      <SelectValue placeholder="Select date range" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">📅 All Time</SelectItem>
-                      <SelectItem value="today">🌅 Today</SelectItem>
-                      <SelectItem value="week">📆 This Week</SelectItem>
-                      <SelectItem value="month">📅 This Month</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-center">
-                <Button 
-                  onClick={handleSearch} 
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 sm:px-8 py-2 sm:py-3 h-10 sm:h-12 text-sm sm:text-base font-medium shadow-lg hover:shadow-xl transition-all duration-200 w-full sm:w-auto"
-                >
-                  <Filter className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                  Apply Filters
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Enhanced Bookings Cards */}
-        <div className="px-4 sm:px-6 pb-6 sm:pb-8">
           <div className="max-w-7xl mx-auto">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -1356,317 +1000,7 @@ const AdminBookingManagement = () => {
                   <p className="text-base sm:text-lg font-medium text-gray-900 mb-2">No Bookings Found</p>
                   <p className="text-sm sm:text-base text-gray-600">Try adjusting your filters or search criteria</p>
                 </div>
-              ) : viewMode === 'cards' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-                  {filteredBookings.map((booking) => (
-                    <div
-                      key={booking._id}
-                      className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 hover:shadow-lg transition-all duration-200 hover:border-blue-300"
-                    >
-                      {/* Booking Header */}
-                      <div className="mb-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-                          <div className="font-mono font-bold text-base sm:text-lg text-blue-600">
-                            {booking.bookingNumber}
-                          </div>
-                          {getStatusBadge(booking.status)}
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-600">
-                          <span>📅 {formatDate(booking.tripDetails.date)}</span>
-                          <span>🕐 {formatTime(booking.tripDetails.time)}</span>
-                        </div>
-                      </div>
-
-                      {/* Payment Price Section */}
-                      <div className="mb-4">
-                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-lg border border-green-200">
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-semibold text-green-800">Total Amount</p>
-                              <p className="text-xs text-green-600">Trip Type: {booking.pricing.tripType === 'one-way' ? 'One Way' : 'Return Trip'}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-bold text-lg sm:text-xl text-green-700">
-                                {formatCurrency(getBookingPricing(booking).totalAmount)}
-                              </p>
-                              <p className="text-xs text-green-600 font-medium">
-                                {formatCurrency(getBookingPricing(booking).ratePerKm)}/km
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Customer & Driver Info */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <User className="w-4 h-4 text-blue-600" />
-                            <span className="text-xs sm:text-sm font-medium text-gray-700">Customer</span>
-                          </div>
-                          <p className="font-semibold text-sm sm:text-base text-gray-900">
-                            {booking.user.firstName} {booking.user.lastName}
-                          </p>
-                          <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
-                            <Phone className="w-3 h-3" />
-                            {booking.user.phone}
-                          </p>
-                          {booking.user.email && (
-                            <p className="text-xs sm:text-sm text-gray-500 flex items-center gap-1">
-                              <Mail className="w-3 h-3" />
-                              {booking.user.email}
-                            </p>
-                          )}
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <User className="w-4 h-4 text-green-600" />
-                            <span className="text-xs sm:text-sm font-medium text-gray-700">Driver</span>
-                          </div>
-                          <p className="font-semibold text-sm sm:text-base text-gray-900">
-                            {booking.driver.firstName} {booking.driver.lastName}
-                          </p>
-                          <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
-                            <Phone className="w-3 h-3" />
-                            {booking.driver.phone}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Vehicle Info */}
-                      <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-white rounded-lg shadow-sm">
-                            {getVehicleIcon(booking.vehicle.type)}
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-sm sm:text-base text-gray-900">
-                              {booking.vehicle.brand} {booking.vehicle.model}
-                            </p>
-                            <p className="text-xs font-mono text-gray-600 bg-white px-2 py-1 rounded border">
-                              {booking.vehicle.registrationNumber}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Trip Details */}
-                      <div className="mb-4 space-y-3">
-                        <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-xs sm:text-sm font-medium text-gray-700">Pickup</p>
-                            <p className="text-xs sm:text-sm text-gray-600">{booking.tripDetails.pickup.address}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-start gap-2">
-                          <Navigation className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-xs sm:text-sm font-medium text-gray-700">Destination</p>
-                            <p className="text-xs sm:text-sm text-gray-600">{booking.tripDetails.destination.address}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs text-gray-500 pt-2 border-t border-gray-100">
-                          <span>👥 {booking.tripDetails.passengers} passengers</span>
-                          <span>📏 {booking.tripDetails.distance} km</span>
-                          <span>⏱️ {booking.tripDetails.duration} min</span>
-                        </div>
-                      </div>
-
-                      {/* Payment Status */}
-                      <div className="mb-4 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <CreditCard className="w-4 h-4 text-purple-600" />
-                            <span className="text-xs sm:text-sm font-medium text-gray-700">Payment</span>
-                            {booking.payment.isPartialPayment && (
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                💰 Partial Payment
-                              </Badge>
-                            )}
-                          </div>
-                          {getPaymentStatusBadge(booking.payment.status)}
-                        </div>
-                        
-                        {/* Partial Payment Details */}
-                        {booking.payment.isPartialPayment && (
-                          <div className={`border rounded-lg p-3 ${
-                            booking.payment.partialPaymentDetails?.cashPaymentStatus === 'collected' 
-                              ? 'bg-green-50 border-green-200' 
-                              : 'bg-orange-50 border-orange-200'
-                          }`}>
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                              <div className="text-xs font-medium text-blue-800">Partial Payment Details</div>
-                              {booking.payment.partialPaymentDetails?.cashPaymentStatus === 'pending' && (
-                                <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">
-                                  ⚠️ Cash Pending
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                <span className="text-xs text-blue-700">Online Payment:</span>
-                                <div className="flex items-center gap-2">
-                                  <div className={`w-2 h-2 rounded-full ${
-                                    booking.payment.partialPaymentDetails?.onlinePaymentStatus === 'completed' ? 'bg-green-500' : 'bg-yellow-500'
-                                  }`}></div>
-                                  <span className="text-xs font-medium text-blue-800">
-                                    ₹{booking.payment.partialPaymentDetails?.onlineAmount || 0}
-                                  </span>
-                                  <Badge variant={booking.payment.partialPaymentDetails?.onlinePaymentStatus === 'completed' ? 'default' : 'secondary'} className="text-xs">
-                                    {booking.payment.partialPaymentDetails?.onlinePaymentStatus === 'completed' ? 'Paid' : 'Pending'}
-                                  </Badge>
-                                </div>
-                              </div>
-                              
-                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                <span className="text-xs text-blue-700">Cash Payment:</span>
-                                <div className="flex items-center gap-2">
-                                  <div className={`w-2 h-2 rounded-full ${
-                                    booking.payment.partialPaymentDetails?.cashPaymentStatus === 'collected' ? 'bg-green-500' : 'bg-yellow-500'
-                                  }`}></div>
-                                  <span className="text-xs font-medium text-blue-800">
-                                    ₹{booking.payment.partialPaymentDetails?.cashAmount || 0}
-                                  </span>
-                                  <Badge variant={booking.payment.partialPaymentDetails?.cashPaymentStatus === 'collected' ? 'default' : 'secondary'} className="text-xs">
-                                    {booking.payment.partialPaymentDetails?.cashPaymentStatus === 'collected' ? 'Collected' : 'Pending'}
-                                  </Badge>
-                                </div>
-                              </div>
-                              
-                              {booking.payment.partialPaymentDetails?.cashCollectedAt && (
-                                <div className="text-xs text-green-600 pt-1 border-t border-green-200">
-                                  Cash collected on: {new Date(booking.payment.partialPaymentDetails.cashCollectedAt).toLocaleDateString()}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Booking Status Section */}
-                      <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <CheckSquare className="w-4 h-4 text-purple-600" />
-                            <span className="text-xs sm:text-sm font-medium text-gray-700">Booking Status</span>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStatusUpdate(booking)}
-                            className="h-8 px-3 hover:bg-purple-50 hover:border-purple-300 text-xs font-medium"
-                          >
-                            <CheckSquare className="w-3 h-3 mr-1 text-purple-600" />
-                            Update
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-gray-100">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleViewDetails(booking)}
-                          className="flex-1 h-9 hover:bg-blue-50 hover:border-blue-300 text-xs sm:text-sm font-medium"
-                        >
-                          <Eye className="w-4 h-4 mr-2 text-blue-600" />
-                          Details
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleViewPayment(booking)}
-                          className="flex-1 h-9 hover:bg-green-50 hover:border-green-300 text-xs sm:text-sm font-medium"
-                        >
-                          <CreditCard className="w-4 h-4 mr-2 text-green-600" />
-                          Payment
-                        </Button>
-                      </div>
-
-                                             {/* Cancellation Request Actions */}
-                       {booking.status === 'cancellation_requested' && (
-                         <div className="mt-4 pt-4 border-t border-orange-200 space-y-2">
-                           <p className="text-sm font-medium text-orange-800 text-center mb-3">Cancellation Request</p>
-                           <Button
-                             size="sm"
-                             variant="outline"
-                             onClick={() => handleApproveCancellation(booking)}
-                             className="w-full h-10 hover:bg-green-50 hover:border-green-300 text-sm font-medium transition-all duration-200"
-                           >
-                             <CheckCircle className="w-4 h-4 mr-2 text-green-600" />
-                             Approve Cancellation
-                           </Button>
-                           <Button
-                             size="sm"
-                             variant="outline"
-                             onClick={() => handleRejectCancellation(booking)}
-                             className="w-full h-10 hover:bg-red-50 hover:border-red-300 text-sm font-medium transition-all duration-200"
-                           >
-                             <XCircle className="w-4 h-4 mr-2 text-red-600" />
-                             Reject Cancellation
-                           </Button>
-                         </div>
-                       )}
-
-                       {/* Refund Button for Cancelled Bookings */}
-                       {booking.status === 'cancelled' && 
-                        booking.cancellation?.refundStatus === 'pending' && (
-                         <div className="mt-4 pt-4 border-t border-red-200">
-                           <p className="text-sm font-medium text-red-800 text-center mb-3">Refund Required</p>
-                           <Button
-                             size="sm"
-                             variant="outline"
-                             onClick={() => handleInitiateRefund(booking)}
-                             className="w-full h-10 hover:bg-orange-50 hover:border-orange-300 text-sm font-medium transition-all duration-200"
-                           >
-                             <RotateCcw className="w-4 h-4 mr-2 text-orange-600" />
-                             Initiate Refund
-                           </Button>
-                         </div>
-                       )}
-
-                       {/* Mark Refund Completed Button */}
-                       {booking.status === 'cancelled' && 
-                        booking.cancellation?.refundStatus === 'initiated' && (
-                         <div className="mt-4 pt-4 border-t border-yellow-200">
-                           <p className="text-sm font-medium text-yellow-800 text-center mb-3">Refund Initiated</p>
-                           <Button
-                             size="sm"
-                             variant="outline"
-                             onClick={() => handleCompleteRefund(booking)}
-                             className="w-full h-10 hover:bg-green-50 hover:border-green-300 text-sm font-medium transition-all duration-200"
-                           >
-                             <CheckSquare className="w-4 h-4 mr-2 text-green-600" />
-                             Mark Refund Completed
-                           </Button>
-                         </div>
-                       )}
-
-                       {/* Cash Collection Button for Partial Payment Bookings */}
-                       {booking.payment.isPartialPayment && 
-                        booking.payment.partialPaymentDetails?.cashPaymentStatus === 'pending' && (
-                         <div className="mt-4 pt-4 border-t border-blue-200">
-                           <p className="text-sm font-medium text-blue-800 text-center mb-3">Cash Collection Required</p>
-                           <Button
-                             size="sm"
-                             variant="outline"
-                             onClick={() => handleMarkCashCollected(booking)}
-                             className="w-full h-10 hover:bg-green-50 hover:border-green-300 text-sm font-medium transition-all duration-200"
-                           >
-                             <CheckCircle className="w-4 h-4 mr-2 text-green-600" />
-                             Mark Cash Collected
-                           </Button>
-                         </div>
-                       )}
-                                         </div>
-                   ))}
-                 </div>
-               ) : (
+              ) : (
                  <div className="overflow-x-auto -mx-4 sm:mx-0">
                    <div className="min-w-[1200px] sm:min-w-0">
                      <Table>
@@ -1677,9 +1011,11 @@ const AdminBookingManagement = () => {
                            <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Driver</TableHead>
                            <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Vehicle</TableHead>
                            <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Trip Details</TableHead>
+                           <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm text-center whitespace-nowrap">See Location</TableHead>
                            <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Amount</TableHead>
-                           <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Status</TableHead>
-                           <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Payment</TableHead>
+                           <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Advance</TableHead>
+                           <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Remaining</TableHead>
+                           <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm whitespace-nowrap">Booking Status</TableHead>
                            <TableHead className="font-semibold text-gray-900 py-4 text-xs sm:text-sm">Actions</TableHead>
                          </TableRow>
                        </TableHeader>
@@ -1740,49 +1076,90 @@ const AdminBookingManagement = () => {
                                </div>
                              </TableCell>
                              <TableCell className="py-4">
-                               <div className="space-y-2 max-w-xs">
-                                 <div className="flex items-start gap-2">
-                                   <MapPin className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                                   <p className="text-xs sm:text-sm text-gray-900 font-medium">Pickup</p>
-                                 </div>
-                                 <p className="text-xs sm:text-sm text-gray-600 ml-6">
-                                   {booking.tripDetails.pickup.address}
-                                 </p>
-                                 
-                                 <div className="flex items-start gap-2">
-                                   <Navigation className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-                                   <p className="text-xs sm:text-sm text-gray-900 font-medium">Destination</p>
-                                 </div>
-                                 <p className="text-xs sm:text-sm text-gray-600 ml-6">
-                                   {booking.tripDetails.destination.address}
-                                 </p>
-                                 
-                                 <div className="text-xs text-gray-500 ml-6 mt-2">
-                                   📅 {formatDate(booking.tripDetails.date)} at {formatTime(booking.tripDetails.time)}
-                                 </div>
+                               <div className="text-xs sm:text-sm text-gray-700 whitespace-nowrap">
+                                 <p className="font-medium text-gray-900">{formatDate(booking.tripDetails.date)}</p>
+                                 <p className="text-gray-500">{formatTime(booking.tripDetails.time)}</p>
                                </div>
+                             </TableCell>
+                             <TableCell className="py-4 text-center">
+                               <Button
+                                 variant="outline"
+                                 size="sm"
+                                 onClick={() => setRouteBooking(booking)}
+                                 className="h-8 w-8 p-0"
+                                 title="View pickup & destination"
+                               >
+                                 <Eye className="w-4 h-4 text-blue-600" />
+                               </Button>
                              </TableCell>
                              <TableCell className="py-4">
-                               <div className="text-right">
-                                 <p className="font-bold text-base sm:text-lg text-gray-900">
-                                   {formatCurrency(getBookingPricing(booking).totalAmount)}
-                                 </p>
-                                 <p className="text-xs text-gray-500">
-                                   {formatCurrency(getBookingPricing(booking).ratePerKm)}/km
-                                 </p>
-                               </div>
+                               {(() => {
+                                 const pricing = getBookingPricing(booking);
+                                 const discount = pricing.discount || 0;
+                                 const couponCode = pricing.couponCode;
+                                 const hasDiscount = discount > 0;
+                                 const originalAmount = pricing.totalAmount + discount;
+
+                                 return (
+                                   <div className="text-right">
+                                     <div className="flex items-baseline justify-end gap-1.5">
+                                       {hasDiscount && (
+                                         <span className="text-xs text-gray-400 line-through">
+                                           {formatCurrency(originalAmount)}
+                                         </span>
+                                       )}
+                                       <p className="font-bold text-base sm:text-lg text-gray-900">
+                                         {formatCurrency(pricing.totalAmount)}
+                                       </p>
+                                     </div>
+                                     <p className="text-xs text-gray-500">
+                                       {formatCurrency(pricing.ratePerKm)}/km
+                                     </p>
+                                     {hasDiscount && (
+                                       <div className="mt-1 flex items-center justify-end">
+                                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/90 text-[11px] font-semibold">
+                                           <Tag className="w-2.5 h-2.5" />
+                                           <span>Discount: -{formatCurrency(discount)}</span>
+                                           {couponCode && <span className="font-mono text-[10px] text-emerald-800">({couponCode})</span>}
+                                         </span>
+                                       </div>
+                                     )}
+                                   </div>
+                                 );
+                               })()}
                              </TableCell>
+                             {(() => {
+                               // Advance = paid online at booking; Remaining = cash still due to the driver
+                               const p = booking.payment;
+                               const partial = p.isPartialPayment ? p.partialPaymentDetails : undefined;
+                               const total = getBookingPricing(booking).totalAmount;
+                               const advance = partial ? partial.onlineAmount : (p.status === 'completed' ? (p.amount || total) : 0);
+                               const advancePaid = partial ? partial.onlinePaymentStatus === 'completed' : p.status === 'completed';
+                               const remaining = partial ? partial.cashAmount : total - advance;
+                               const remainingDone = partial ? partial.cashPaymentStatus === 'collected' : remaining <= 0;
+                               const tag = (ok: boolean, okText: string, pendingText: string) => (
+                                 <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${ok ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'}`}>
+                                   {ok ? okText : pendingText}
+                                 </span>
+                               );
+                               return (
+                                 <>
+                                   <TableCell className="py-4 whitespace-nowrap">
+                                     <p className="font-semibold text-gray-900">{formatCurrency(advance)}</p>
+                                     {tag(advancePaid, 'Paid', 'Pending')}
+                                   </TableCell>
+                                   <TableCell className="py-4 whitespace-nowrap">
+                                     <p className="font-semibold text-gray-900">{formatCurrency(Math.max(remaining, 0))}</p>
+                                     {remaining > 0 ? tag(remainingDone, 'Collected', 'Pending') : tag(true, 'Nil', 'Nil')}
+                                   </TableCell>
+                                 </>
+                               );
+                             })()}
                              <TableCell className="py-4">
                                {getStatusBadge(booking.status)}
                              </TableCell>
                              <TableCell className="py-4">
-                               <div className="space-y-2">
-                                 {getPaymentStatusBadge(booking.payment.status)}
-                                 {getPaymentStatusDisplay(booking)}
-                               </div>
-                             </TableCell>
-                             <TableCell className="py-4">
-                               <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                               <div className="flex flex-nowrap items-center gap-1.5">
                                  <Button
                                    size="sm"
                                    variant="outline"
@@ -1801,16 +1178,6 @@ const AdminBookingManagement = () => {
                                  >
                                    <CreditCard className="w-3 h-3 sm:w-4 sm:h-4 text-green-600" />
                                  </Button>
-                                 <Button
-                                   size="sm"
-                                   variant="outline"
-                                   onClick={() => handleStatusUpdate(booking)}
-                                   className="h-7 w-7 sm:h-8 sm:w-8 p-0 hover:bg-purple-50 hover:border-purple-300"
-                                   title="Update Status"
-                                 >
-                                   <CheckSquare className="w-3 h-3 sm:w-4 sm:h-4 text-purple-600" />
-                                 </Button>
-                                 
                                  {/* Cancellation Request Actions */}
                                  {booking.status === 'cancellation_requested' && (
                                    <>
@@ -1835,47 +1202,41 @@ const AdminBookingManagement = () => {
                                    </>
                                  )}
 
-                                 {/* Refund Button for Cancelled Bookings */}
-                                 {booking.status === 'cancelled' && 
+                                 {/* Cancel (admin) */}
+                                 {['pending', 'accepted', 'started'].includes(booking.status) && (
+                                   <Button
+                                     size="sm"
+                                     variant="outline"
+                                     onClick={() => handleCancelBooking(booking)}
+                                     className="h-7 sm:h-8 px-2 sm:px-3 text-xs font-medium text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                                     title="Cancel Booking"
+                                   >
+                                     <Ban className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                                     Cancel
+                                   </Button>
+                                 )}
+
+                                 {/* Refund after cancellation, then "Refunded" */}
+                                 {booking.status === 'cancelled' &&
                                   booking.cancellation?.refundStatus === 'pending' && (
                                    <Button
                                      size="sm"
                                      variant="outline"
                                      onClick={() => handleInitiateRefund(booking)}
-                                     className="h-7 w-7 sm:h-8 sm:w-8 p-0 hover:bg-orange-50 hover:border-orange-300"
-                                     title="Initiate Refund"
+                                     className="h-7 sm:h-8 px-2 sm:px-3 text-xs font-medium text-orange-600 border-orange-200 hover:bg-orange-50 hover:border-orange-300"
+                                     title="Refund customer"
                                    >
-                                     <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 text-orange-600" />
+                                     <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                                     Refund
                                    </Button>
+                                 )}
+                                 {booking.status === 'cancelled' && booking.cancellation?.refundStatus === 'completed' && (
+                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold whitespace-nowrap">
+                                     <CheckCircle className="w-3.5 h-3.5" />
+                                     Refunded{booking.cancellation.refundAmount ? ` ₹${booking.cancellation.refundAmount}` : ''}
+                                   </span>
                                  )}
 
-                                 {/* Mark Refund Completed Button */}
-                                 {booking.status === 'cancelled' && 
-                                  booking.cancellation?.refundStatus === 'initiated' && (
-                                   <Button
-                                     size="sm"
-                                     variant="outline"
-                                     onClick={() => handleCompleteRefund(booking)}
-                                     className="h-7 w-7 sm:h-8 sm:w-8 p-0 hover:bg-green-50 hover:border-green-300"
-                                     title="Mark Refund Completed"
-                                   >
-                                     <CheckSquare className="w-3 h-3 sm:w-4 sm:h-4 text-green-600" />
-                                   </Button>
-                                 )}
-
-                                 {/* Cash Collection Button for Partial Payment Bookings */}
-                                 {booking.payment.isPartialPayment && 
-                                  booking.payment.partialPaymentDetails?.cashPaymentStatus === 'pending' && (
-                                   <Button
-                                     size="sm"
-                                     variant="outline"
-                                     onClick={() => handleMarkCashCollected(booking)}
-                                     className="h-7 w-7 sm:h-8 sm:w-8 p-0 hover:bg-green-50 hover:border-green-300"
-                                     title="Mark Cash Collected"
-                                   >
-                                     <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-green-600" />
-                                   </Button>
-                                 )}
                                </div>
                              </TableCell>
                            </TableRow>
@@ -1948,6 +1309,40 @@ const AdminBookingManagement = () => {
         )}
       </div>
 
+      {/* Pickup & Destination Dialog */}
+      <Dialog open={!!routeBooking} onOpenChange={(open) => !open && setRouteBooking(null)}>
+        <DialogContent className="max-w-md w-[95vw]">
+          <DialogHeader>
+            <DialogTitle>Trip Route</DialogTitle>
+          </DialogHeader>
+          {routeBooking && (
+            <div className="space-y-4">
+              <p className="text-xs text-gray-500">
+                #{routeBooking.bookingNumber} • {formatDate(routeBooking.tripDetails.date)} at {formatTime(routeBooking.tripDetails.time)}
+                {routeBooking.tripDetails.distance ? ` • ${Number(routeBooking.tripDetails.distance).toFixed(1)} km` : ''}
+              </p>
+              <div className="flex gap-3">
+                <div className="flex flex-col items-center pt-1.5 flex-shrink-0">
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                  <span className="w-px flex-1 min-h-6 bg-gray-300 my-1" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pickup</p>
+                    <p className="text-sm font-semibold text-gray-900">{routeBooking.tripDetails.pickup.address}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Destination</p>
+                    <p className="text-sm font-semibold text-gray-900">{routeBooking.tripDetails.destination.address}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Booking Details Dialog */}
       <Dialog open={showBookingDetails} onOpenChange={setShowBookingDetails}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto mx-4 sm:mx-auto">
@@ -1971,13 +1366,51 @@ const AdminBookingManagement = () => {
                     <div className="mt-1">{getStatusBadge(selectedBooking.status)}</div>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium text-gray-600">Trip Type</Label>
-                    <p className="mt-1 font-medium capitalize text-sm sm:text-base">{selectedBooking.pricing.tripType}</p>
+                    <Label className="text-sm font-medium text-gray-600">Total Amount</Label>
+                    <div className="mt-1 flex items-baseline gap-2">
+                      <p className="font-medium text-sm sm:text-base">{formatCurrency(getBookingPricing(selectedBooking).totalAmount)}</p>
+                      {getBookingPricing(selectedBooking).discount > 0 && (
+                        <span className="text-xs text-gray-400 line-through">
+                          {formatCurrency(getBookingPricing(selectedBooking).totalAmount + getBookingPricing(selectedBooking).discount)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium text-gray-600">Total Amount</Label>
-                    <p className="mt-1 font-medium text-sm sm:text-base">{formatCurrency(getBookingPricing(selectedBooking).totalAmount)}</p>
+                    <Label className="text-sm font-medium text-gray-600">Trip Fare (2x)</Label>
+                    <p className="mt-1 font-medium text-sm sm:text-base">
+                      {formatCurrency(
+                        Math.max(
+                          0,
+                          (getBookingPricing(selectedBooking).totalAmount || 0) +
+                            (getBookingPricing(selectedBooking).discount || 0) -
+                            (getBookingPricing(selectedBooking).platformFee || 0)
+                        )
+                      )}
+                      {getBookingPricing(selectedBooking).distance > 0 && getBookingPricing(selectedBooking).ratePerKm > 0 && (
+                        <span className="text-xs text-gray-500 font-normal ml-1.5">
+                          ({getBookingPricing(selectedBooking).distance} km × 2 × {formatCurrency(getBookingPricing(selectedBooking).ratePerKm)})
+                        </span>
+                      )}
+                    </p>
                   </div>
+                  {getBookingPricing(selectedBooking).platformFee > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Platform Fee</Label>
+                      <p className="mt-1 font-medium text-sm sm:text-base">
+                        {formatCurrency(getBookingPricing(selectedBooking).platformFee)}
+                      </p>
+                    </div>
+                  )}
+                  {getBookingPricing(selectedBooking).discount > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium text-emerald-700">Coupon Discount</Label>
+                      <p className="mt-1 font-semibold text-sm sm:text-base text-emerald-700">
+                        -{formatCurrency(getBookingPricing(selectedBooking).discount)}
+                        {getBookingPricing(selectedBooking).couponCode && ` (${getBookingPricing(selectedBooking).couponCode})`}
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <Label className="text-sm font-medium text-gray-600">Rate per KM</Label>
                     <p className="mt-1 font-medium text-sm sm:text-base">{formatCurrency(getBookingPricing(selectedBooking).ratePerKm)}</p>
@@ -2127,28 +1560,8 @@ const AdminBookingManagement = () => {
                       <p className="mt-1 font-medium capitalize">{selectedBooking.cancellation.cancelledByModel}</p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-600">Cancelled At</Label>
-                      <p className="mt-1 font-medium">{formatDate(selectedBooking.cancellation.cancelledAt)}</p>
-                    </div>
-                    <div>
                       <Label className="text-sm font-medium text-gray-600">Reason</Label>
                       <p className="mt-1 font-medium">{selectedBooking.cancellation.reason}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Refund Amount</Label>
-                      <p className="mt-1 font-medium">{formatCurrency(selectedBooking.cancellation.refundAmount)}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Refund Status</Label>
-                      <div className="mt-1">
-                        <Badge className={
-                          selectedBooking.cancellation.refundStatus === 'completed' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-yellow-100 text-yellow-800'
-                        }>
-                          {selectedBooking.cancellation.refundStatus === 'completed' ? 'Completed' : 'Pending'}
-                        </Badge>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -2175,6 +1588,9 @@ const AdminBookingManagement = () => {
                   <div className="space-y-4">
                     {paymentDetails.payments.map((payment, index) => (
                       <div key={index} className="border rounded-lg p-3 sm:p-4">
+                        {payment.label && (
+                          <h4 className="font-semibold text-gray-900 text-sm sm:text-base mb-3 pb-2 border-b">{payment.label}</h4>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <Label className="text-sm font-medium text-gray-600">Amount</Label>
@@ -2182,26 +1598,39 @@ const AdminBookingManagement = () => {
                           </div>
                           <div>
                             <Label className="text-sm font-medium text-gray-600">Method</Label>
-                            <p className="mt-1 font-medium capitalize text-sm sm:text-base">{payment.method}</p>
+                            <p className="mt-1 font-medium capitalize text-sm sm:text-base">
+                              {payment.method
+                                ? `${payment.method}${payment.paidVia ? ` (${payment.paidVia.toUpperCase()})` : ''}`
+                                : '—'}
+                            </p>
                           </div>
                           <div>
                             <Label className="text-sm font-medium text-gray-600">Status</Label>
-                            <div className="mt-1">{getPaymentStatusBadge(payment.status)}</div>
+                            <div className="mt-1">
+                              {payment.method === 'cash' && payment.status === 'completed' ? (
+                                <Badge className="bg-green-100 text-green-800 border border-green-200 px-3 py-1.5 font-medium">
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                    Collected
+                                  </div>
+                                </Badge>
+                              ) : getPaymentStatusBadge(payment.status)}
+                            </div>
                           </div>
                           <div>
                             <Label className="text-sm font-medium text-gray-600">Date</Label>
-                            <p className="mt-1 font-medium text-sm sm:text-base">{formatDate(payment.createdAt)}</p>
+                            <p className="mt-1 font-medium text-sm sm:text-base">{payment.createdAt ? formatDate(payment.createdAt) : '—'}</p>
                           </div>
                           {payment.transactionId && (
                             <div>
-                              <Label className="text-sm font-medium text-gray-600">Transaction ID</Label>
-                              <p className="mt-1 font-medium font-mono text-xs sm:text-sm">{payment.transactionId}</p>
+                              <Label className="text-sm font-medium text-gray-600">Transaction ID (Razorpay Payment ID)</Label>
+                              <p className="mt-1 font-medium font-mono text-xs sm:text-sm break-all">{payment.transactionId}</p>
                             </div>
                           )}
-                          {payment.paymentDetails?.razorpayPaymentId && (
+                          {payment.paymentDetails?.razorpayOrderId && (
                             <div>
-                              <Label className="text-sm font-medium text-gray-600">Razorpay Payment ID</Label>
-                              <p className="mt-1 font-medium font-mono text-xs sm:text-sm">{payment.paymentDetails.razorpayPaymentId}</p>
+                              <Label className="text-sm font-medium text-gray-600">Razorpay Order ID</Label>
+                              <p className="mt-1 font-medium font-mono text-xs sm:text-sm break-all">{payment.paymentDetails.razorpayOrderId}</p>
                             </div>
                           )}
                         </div>
@@ -2334,81 +1763,6 @@ const AdminBookingManagement = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Status Update Modal */}
-      <Dialog open={showStatusUpdateModal} onOpenChange={setShowStatusUpdateModal}>
-        <DialogContent className="max-w-md mx-4 sm:mx-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg sm:text-xl">Update Booking Status</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="newStatus">New Status</Label>
-              <Select value={newStatus} onValueChange={setNewStatus}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select new status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="accepted">Accepted</SelectItem>
-                  <SelectItem value="started">Started</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="statusReason">Reason for Change</Label>
-              <Textarea
-                id="statusReason"
-                placeholder="Enter reason for status change..."
-                value={statusReason}
-                onChange={(e) => setStatusReason(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="statusNotes">Admin Notes</Label>
-              <Textarea
-                id="statusNotes"
-                placeholder="Enter admin notes (optional)..."
-                value={statusNotes}
-                onChange={(e) => setStatusNotes(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 pt-4">
-              <Button
-                onClick={updateBookingStatus}
-                disabled={isUpdatingStatus || !newStatus || !statusReason}
-                className="flex-1"
-              >
-                {isUpdatingStatus ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Updating...
-                  </>
-                ) : (
-                  <>
-                    <CheckSquare className="w-4 h-4 mr-2" />
-                    Update Status
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setShowStatusUpdateModal(false)}
-                disabled={isUpdatingStatus}
-                className="flex-1 sm:flex-none"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </AdminLayout>
   );
 };

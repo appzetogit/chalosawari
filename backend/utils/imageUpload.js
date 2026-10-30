@@ -1,128 +1,124 @@
 const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
+const fs = require('fs');
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+/**
+ * Local Disk Storage Engine for VPS storage
+ * Writes incoming files to backend/public/uploads/{folder}
+ * and attaches relative URLs (/uploads/{folder}/{filename}) to req.file / req.files
+ */
+function LocalStorageEngine(options = {}) {
+  this.folder = options.folder || 'vehicles';
+}
 
-// Configure Cloudinary storage for Multer
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'chalo-sawari/vehicles',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [
-      { width: 800, height: 600, crop: 'limit' }, // Resize images
-      { quality: 'auto:good' } // Optimize quality
-    ]
+LocalStorageEngine.prototype._handleFile = function(req, file, cb) {
+  const uploadDir = path.join(__dirname, '../public/uploads', this.folder);
+  
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
   }
-});
 
-// Configure Cloudinary storage for Offers
-const offerStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'chalo-sawari/offers',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [
-      { width: 800, height: 600, crop: 'limit' }, // Resize images
-      { quality: 'auto:good' } // Optimize quality
-    ]
-  }
-});
+  const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+  const uniqueId = Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+  const filename = `${uniqueId}${ext}`;
+  const finalFilePath = path.join(uploadDir, filename);
+  const relativeUrl = `/uploads/${this.folder}/${filename}`;
 
-// Configure Cloudinary storage for Vehicle Documents
-const documentStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'chalo-sawari/vehicle-documents',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-    transformation: [
-      { width: 1200, height: 800, crop: 'limit' }, // Higher resolution for documents
-      { quality: 'auto:good' } // Optimize quality
-    ]
-  }
-});
+  const outStream = fs.createWriteStream(finalFilePath);
+  file.stream.pipe(outStream);
 
-// Configure Multer for image uploads
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-    files: 10 // Maximum 10 files
-  },
-  fileFilter: (req, file, cb) => {
-    // Check file type
-    const allowedTypes = /jpeg|jpg|png|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+  outStream.on('error', (err) => {
+    cb(err);
+  });
 
-    if (mimetype && extname) {
-      return cb(null, true);
+  outStream.on('finish', () => {
+    cb(null, {
+      destination: uploadDir,
+      filename: filename,
+      path: relativeUrl, // Saved in database (e.g., /uploads/vehicles/xyz.jpg)
+      secure_url: relativeUrl,
+      url: relativeUrl,
+      public_id: `${this.folder}/${filename.replace(ext, '')}`,
+      bytes: outStream.bytesWritten,
+      size: outStream.bytesWritten,
+      format: ext.replace('.', '')
+    });
+  });
+};
+
+LocalStorageEngine.prototype._removeFile = function(req, file, cb) {
+  if (file && file.filename) {
+    const filePath = path.join(__dirname, '../public/uploads', this.folder, file.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlink(filePath, cb);
     } else {
-      cb(new Error('Only image files are allowed!'));
+      cb(null);
     }
+  } else {
+    cb(null);
   }
+};
+
+// Storage instances for different folders
+const vehicleStorage = new LocalStorageEngine({ folder: 'vehicles' });
+const offerStorage = new LocalStorageEngine({ folder: 'offers' });
+const documentStorage = new LocalStorageEngine({ folder: 'vehicle-documents' });
+const avatarStorage = new LocalStorageEngine({ folder: 'avatars' });
+
+// Image file filter
+const imageFileFilter = (req, file, cb) => {
+  // Both must match: the stored file keeps its extension and is served statically (SVG/HTML could run scripts)
+  const extname = /^\.(jpe?g|png|webp|gif)$/.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Only image files (jpeg, jpg, png, webp, gif) are allowed!'));
+  }
+};
+
+// Document file filter (images + PDF)
+const documentFileFilter = (req, file, cb) => {
+  // Both must match: the stored file keeps its extension and is served statically
+  const extname = /^\.(jpe?g|png|webp|pdf)$/.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = /^(image\/(jpeg|png|webp)|application\/pdf)$/.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Only image and PDF files are allowed for documents!'));
+  }
+};
+
+// Multer instances
+const upload = multer({
+  storage: vehicleStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 10
+  },
+  fileFilter: imageFileFilter
 });
 
-// Middleware for single image upload
 const uploadSingle = upload.single('image');
-
-// Middleware for multiple image uploads
 const uploadMultiple = upload.array('images', 10);
 
-// Middleware for offer image upload
 const uploadOfferImage = multer({
   storage: offerStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // 10MB limit
   },
-  fileFilter: (req, file, cb) => {
-    console.log('File filter called with:', { 
-      originalname: file.originalname, 
-      mimetype: file.mimetype,
-      size: file.size 
-    });
-    
-    // Check file type
-    const allowedTypes = /jpeg|jpg|png|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    console.log('File validation:', { extname, mimetype, allowed: mimetype && extname });
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed!'));
-    }
-  }
+  fileFilter: imageFileFilter
 }).single('image');
 
-// Middleware for vehicle document uploads (insurance, RC, etc.)
 const uploadDocuments = multer({
   storage: documentStorage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit for documents
-    files: 2 // Maximum 2 files (insurance and RC)
+    fileSize: 15 * 1024 * 1024, // 15MB limit for documents
+    files: 2
   },
-  fileFilter: (req, file, cb) => {
-    // Check file type
-    const allowedTypes = /jpeg|jpg|png|webp|pdf/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only image and PDF files are allowed for documents!'));
-    }
-  }
+  fileFilter: documentFileFilter
 }).fields([
   { name: 'insurancePhoto', maxCount: 1 },
   { name: 'rcPhoto', maxCount: 1 }
@@ -132,11 +128,10 @@ const uploadDocuments = multer({
 const uploadOfferImageWithErrorHandling = (req, res, next) => {
   uploadOfferImage(req, res, (err) => {
     if (err instanceof multer.MulterError) {
-      console.log('Multer error:', err);
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
           success: false,
-          message: 'File too large. Maximum size is 5MB.'
+          message: 'File too large. Maximum size is 10MB.'
         });
       }
       return res.status(400).json({
@@ -144,7 +139,6 @@ const uploadOfferImageWithErrorHandling = (req, res, next) => {
         message: `Upload error: ${err.message}`
       });
     } else if (err) {
-      console.log('Other upload error:', err);
       return res.status(400).json({
         success: false,
         message: err.message || 'File upload failed'
@@ -158,11 +152,10 @@ const uploadOfferImageWithErrorHandling = (req, res, next) => {
 const uploadDocumentsWithErrorHandling = (req, res, next) => {
   uploadDocuments(req, res, (err) => {
     if (err instanceof multer.MulterError) {
-      console.log('Document upload Multer error:', err);
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
           success: false,
-          message: 'File too large. Maximum size is 10MB for documents.'
+          message: 'File too large. Maximum size is 15MB for documents.'
         });
       }
       if (err.code === 'LIMIT_FILE_COUNT') {
@@ -176,7 +169,6 @@ const uploadDocumentsWithErrorHandling = (req, res, next) => {
         message: `Document upload error: ${err.message}`
       });
     } else if (err) {
-      console.log('Document upload error:', err);
       return res.status(400).json({
         success: false,
         message: err.message || 'Document upload failed'
@@ -186,65 +178,101 @@ const uploadDocumentsWithErrorHandling = (req, res, next) => {
   });
 };
 
-// Function to delete image from Cloudinary
-const deleteImage = async (publicId) => {
+// Multer instance for avatar
+const uploadAvatar = multer({
+  storage: avatarStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit for avatar
+    files: 1
+  },
+  fileFilter: imageFileFilter
+}).single('avatar');
+
+// Add error handling wrapper for uploadAvatar
+const uploadAvatarWithErrorHandling = (req, res, next) => {
+  uploadAvatar(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          success: false,
+          error: {
+            message: 'File too large. Maximum avatar size is 5MB.',
+            statusCode: 400
+          }
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: `Avatar upload error: ${err.message}`,
+          statusCode: 400
+        }
+      });
+    } else if (err) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: err.message || 'Avatar upload failed',
+          statusCode: 400
+        }
+      });
+    }
+    next();
+  });
+};
+
+// Function to delete image from local storage
+const deleteImage = async (imagePathOrId) => {
+  if (!imagePathOrId) return;
   try {
-    const result = await cloudinary.uploader.destroy(publicId);
-    return result;
+    let relativePath = imagePathOrId;
+    if (typeof imagePathOrId === 'string') {
+      if (imagePathOrId.startsWith('http://') || imagePathOrId.startsWith('https://')) {
+        const match = imagePathOrId.match(/\/uploads\/.+/);
+        if (match) {
+          relativePath = match[0];
+        } else {
+          // Cloudinary or external URL
+          return;
+        }
+      }
+
+      if (relativePath.startsWith('/uploads/')) {
+        const fullPath = path.join(__dirname, '../public', relativePath);
+        if (fs.existsSync(fullPath)) {
+          await fs.promises.unlink(fullPath);
+        }
+      } else {
+        const folders = ['vehicles', 'offers', 'vehicle-documents', 'driver-documents', 'avatars'];
+        for (const folder of folders) {
+          const potentialPath = path.join(__dirname, '../public/uploads', folder, imagePathOrId);
+          if (fs.existsSync(potentialPath)) {
+            await fs.promises.unlink(potentialPath);
+            break;
+          }
+        }
+      }
+    }
   } catch (error) {
-    console.error('Error deleting image from Cloudinary:', error);
-    throw error;
+    console.error('Error deleting image from local storage:', error);
   }
 };
 
-// Function to get image URL from Cloudinary response
+// Function to get image URL
 const getImageUrl = (file) => {
-  if (file.path) {
-    return file.path; // Cloudinary URL
+  if (file && file.path) {
+    return file.path;
   }
   return null;
 };
 
-// Function to optimize image before upload
+// Pass-through helpers for backward compatibility
 const optimizeImage = async (imageBuffer, options = {}) => {
-  try {
-    const result = await cloudinary.uploader.upload_stream(
-      {
-        folder: 'chalo-sawari/vehicles',
-        transformation: [
-          { width: options.width || 800, height: options.height || 600, crop: 'limit' },
-          { quality: 'auto:good' }
-        ]
-      },
-      (error, result) => {
-        if (error) {
-          console.error('Error optimizing image:', error);
-        }
-      }
-    ).end(imageBuffer);
-    
-    return result;
-  } catch (error) {
-    console.error('Error optimizing image:', error);
-    throw error;
-  }
+  return imageBuffer;
 };
 
-// Function to generate thumbnail
-const generateThumbnail = async (imageUrl, width = 200, height = 200) => {
-  try {
-    const publicId = imageUrl.split('/').pop().split('.')[0];
-    const thumbnailUrl = cloudinary.url(publicId, {
-      transformation: [
-        { width, height, crop: 'fill' },
-        { quality: 'auto:good' }
-      ]
-    });
-    return thumbnailUrl;
-  } catch (error) {
-    console.error('Error generating thumbnail:', error);
-    return imageUrl; // Return original URL if thumbnail generation fails
-  }
+const generateThumbnail = async (imageUrl) => {
+  return imageUrl;
 };
 
 module.exports = {
@@ -255,9 +283,11 @@ module.exports = {
   uploadOfferImageWithErrorHandling,
   uploadDocuments,
   uploadDocumentsWithErrorHandling,
+  uploadAvatar,
+  uploadAvatarWithErrorHandling,
   deleteImage,
   getImageUrl,
   optimizeImage,
   generateThumbnail,
-  cloudinary
+  LocalStorageEngine
 };

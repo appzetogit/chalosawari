@@ -26,6 +26,46 @@
     <meta name="twitter:description" content="Chalo Sawari - Your trusted online cab booking aggregator for bus, car and auto rental services. Providing customers with reliable and premium intercity and local transportation solutions. Book with confidence for all your travel needs." />
     <meta name="twitter:image" content="https://www.chalosawari.com/src/assets/BusLogo.png" />
     <meta name="twitter:site" content="@chalosawari" />
+
+    <!-- Global Console & Error Filter for Extension Noise -->
+    <script>
+      (function() {
+        window.addEventListener('error', function(e) {
+          if (
+            e.message && (
+              e.message.includes("reading 'startTime'") ||
+              e.message.includes("reportAllChanges")
+            )
+          ) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          if (
+            e.reason &&
+            typeof e.reason.message === 'string' &&
+            (e.reason.message.includes("reading 'startTime'") || e.reason.message.includes("reportAllChanges"))
+          ) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        });
+
+        const origError = console.error;
+        console.error = function(...args) {
+          const str = args.map(function(a) {
+            return typeof a === 'string' ? a : (a && a.message) || (a && a.stack) || '';
+          }).join(' ');
+          if (str.includes("reading 'startTime'") || str.includes("reportAllChanges")) {
+            return;
+          }
+          origError.apply(console, args);
+        };
+      })();
+    </script>
   </head>
 
   <body>

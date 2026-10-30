@@ -4,6 +4,8 @@ import { ArrowLeft, Clock, CreditCard, AlertTriangle, Shield, FileText, Phone, M
 import { Link } from "react-router-dom";
 import TopNavigation from "@/components/TopNavigation";
 
+import UserBottomNavigation from "@/components/UserBottomNavigation";
+
 const CancellationPolicy = () => {
   const cancellationSections = [
     {
@@ -201,7 +203,7 @@ Special Services:
       </div>
 
       {/* Content */}
-      <div className="p-4 space-y-6 pb-20">
+      <div className="p-4 space-y-6 pb-24 md:pb-6">
         {/* Introduction */}
         <Card className="p-6 border border-border">
           <div className="text-center">
@@ -292,6 +294,7 @@ Special Services:
           </div>
         </Card>
       </div>
+      <UserBottomNavigation />
     </div>
   );
 };

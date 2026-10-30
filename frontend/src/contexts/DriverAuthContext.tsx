@@ -95,6 +95,12 @@ interface Driver {
     isAc: boolean;
     isAvailable: boolean;
   };
+  bankDetails?: {
+    accountNumber?: string;
+    ifscCode?: string;
+    bankName?: string;
+    accountHolderName?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -103,10 +109,11 @@ interface DriverAuthContextType {
   driver: Driver | null;
   isLoggedIn: boolean;
   isLoading: boolean;
-  login: (phone: string, otp: string) => Promise<void>;
-  sendOTP: (phone: string, purpose: 'signup' | 'login') => Promise<void>;
-  verifyOTP: (phone: string, otp: string, purpose: 'signup' | 'login', driverData?: any) => Promise<void>;
-  resendOTP: (phone: string, purpose: 'signup' | 'login') => Promise<void>;
+  login: (phone: string, otp: string) => Promise<any>;
+  registerDriver: (data: { firstName: string; lastName: string; email?: string; phone: string; otp: string }) => Promise<any>;
+  sendOTP: (phone: string, purpose?: string) => Promise<any>;
+  verifyOTP: (phone: string, otp: string, purpose?: string, driverData?: any) => Promise<any>;
+  resendOTP: (phone: string, purpose?: string) => Promise<any>;
   logout: () => void;
   checkAuth: () => Promise<void>;
   updateDriverData: (data: Partial<Driver>) => void;
@@ -128,8 +135,17 @@ interface DriverAuthProviderProps {
 }
 
 export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children }) => {
-  const [driver, setDriver] = useState<Driver | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [driver, setDriver] = useState<Driver | null>(() => {
+    try {
+      const saved = localStorage.getItem('driverData');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    return Boolean(localStorage.getItem('driverToken'));
+  });
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshDriverData = useCallback(async () => {
@@ -140,7 +156,13 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       
       const response = await apiService.getDriverProfile();
       if (response.success && response.data) {
-        setDriver(response.data);
+        const driverData = response.data?.driver || response.data;
+        setDriver(driverData);
+        try {
+          localStorage.setItem('driverData', JSON.stringify(driverData));
+        } catch (e) {
+          console.warn('Failed to cache driverData', e);
+        }
       }
     } catch (error) {
       console.error('Error refreshing driver data:', error);
@@ -151,25 +173,14 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
     }
   }, []);
 
-  // Debounced version of refreshDriverData
-  const debouncedRefreshDriverData = useCallback(() => {
-    const timeoutId = setTimeout(() => {
-      refreshDriverData();
-    }, 1000); // 1 second delay
-    
-    return () => clearTimeout(timeoutId);
-  }, [refreshDriverData]);
-
   const checkAuth = async () => {
     try {
       const token = localStorage.getItem('driverToken');
       const isDriverLoggedIn = localStorage.getItem('isDriverLoggedIn');
 
-      // Allow access if token exists to prevent blank screens during slow profile fetch
       if (token) {
         setIsLoggedIn(true);
-        // Fetch driver profile in background without blocking route
-        debouncedRefreshDriverData();
+        await refreshDriverData();
         setIsLoading(false);
         return;
       }
@@ -177,12 +188,13 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       if (!token || !isDriverLoggedIn) {
         setIsLoggedIn(false);
         setDriver(null);
+        localStorage.removeItem('driverData');
         setIsLoading(false);
         return;
       }
 
       // Fallback: try to get driver info from backend
-      debouncedRefreshDriverData();
+      await refreshDriverData();
       setIsLoggedIn(true);
       
     } catch (error) {
@@ -193,6 +205,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       localStorage.removeItem('driverToken');
       localStorage.removeItem('isDriverLoggedIn');
       localStorage.removeItem('driverPhone');
+      localStorage.removeItem('driverData');
     } finally {
       setIsLoading(false);
     }
@@ -201,75 +214,98 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
   const login = async (phone: string, otp: string) => {
     try {
       setIsLoading(true);
-      // Remove country code if present
       const phoneNumber = phone.replace(/[^0-9]/g, '');
       
       console.log('Attempting driver login with:', { phone: phoneNumber, otp });
-      
-      const response = await apiService.verifyDriverOTP(phoneNumber, otp, 'login');
-      
+      const response = await apiService.verifyDriverOTP(phoneNumber, otp, 'auth');
       console.log('Driver login response:', response);
       
       if (response.success && response.token) {
-        console.log('Driver login successful, setting token and driver data');
-        // Set token first
         apiService.setAuthToken(response.token, 'driver');
-        
-        // Store in localStorage
         localStorage.setItem('isDriverLoggedIn', 'true');
         localStorage.setItem('driverPhone', phoneNumber);
         
-        // Fetch complete driver profile data
         try {
           const profileResponse = await apiService.getDriverProfile();
           if (profileResponse.success) {
             const driverData = profileResponse.data?.driver || profileResponse.data;
             setDriver(driverData);
+            localStorage.setItem('driverData', JSON.stringify(driverData));
           } else {
-            // Fallback to basic driver data from login response
             setDriver(response.driver);
+            if (response.driver) localStorage.setItem('driverData', JSON.stringify(response.driver));
           }
         } catch (profileError) {
-          console.warn('Failed to fetch complete driver profile, using basic driver data:', profileError);
-          // Fallback to basic driver data from login response
           setDriver(response.driver);
+          if (response.driver) localStorage.setItem('driverData', JSON.stringify(response.driver));
         }
         
         setIsLoggedIn(true);
-        
-        // Redirect to driver dashboard after successful login
-        window.location.href = '/driver';
+        return response;
+      } else if (response.success && response.isNewUser) {
+        return response;
       } else {
-        console.log('Driver login failed:', response);
         throw new Error(response.error?.message || response.message || 'Login failed');
       }
     } catch (error) {
       console.error('Driver login error:', error);
-      // Clear any partial state on error
-      apiService.removeAuthToken('driver');
-      setDriver(null);
-      setIsLoggedIn(false);
       throw error;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const sendOTP = async (phone: string, purpose: 'signup' | 'login') => {
+  const registerDriver = async (data: { firstName: string; lastName: string; email?: string; phone: string; otp: string }) => {
     try {
-      const response = await apiService.sendDriverOTP(phone, purpose);
+      setIsLoading(true);
+      const phoneNumber = data.phone.replace(/[^0-9]/g, '');
+      
+      const response = await apiService.verifyDriverOTP(phoneNumber, data.otp, 'auth', {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email
+      });
+
+      if (response.success && response.token) {
+        apiService.setAuthToken(response.token, 'driver');
+        localStorage.setItem('isDriverLoggedIn', 'true');
+        localStorage.setItem('driverPhone', phoneNumber);
+        
+        try {
+          const profileResponse = await apiService.getDriverProfile();
+          if (profileResponse.success) {
+            const driverData = profileResponse.data?.driver || profileResponse.data;
+            setDriver(driverData);
+            localStorage.setItem('driverData', JSON.stringify(driverData));
+          } else {
+            setDriver(response.driver);
+            if (response.driver) localStorage.setItem('driverData', JSON.stringify(response.driver));
+          }
+        } catch (profileError) {
+          setDriver(response.driver);
+          if (response.driver) localStorage.setItem('driverData', JSON.stringify(response.driver));
+        }
+        
+        setIsLoggedIn(true);
+        return response;
+      } else {
+        throw new Error(response.error?.message || response.message || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Driver registration error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const sendOTP = async (phone: string, purpose: string = 'auth') => {
+    try {
+      const phoneNumber = phone.replace(/[^0-9]/g, '');
+      const response = await apiService.sendDriverOTP(phoneNumber, purpose);
       if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to send OTP');
+        throw new Error(response.error?.message || response.message || 'Failed to send OTP');
       }
-      
-      // Debug: Show OTP in console for development
-      if (response.data && response.data.otp) {
-        console.log(`🔑 OTP for ${phone}: ${response.data.otp}`);
-        console.log(`📱 Purpose: ${purpose}`);
-        console.log(`🧪 Is Test Driver: ${response.data.isTestDriver}`);
-        console.log(`🔧 Is Development: ${response.data.isDevelopment}`);
-      }
-      
       return response;
     } catch (error) {
       console.error('Send OTP error:', error);
@@ -277,32 +313,22 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
     }
   };
 
-  const verifyOTP = async (phone: string, otp: string, purpose: 'signup' | 'login', driverData?: any) => {
+  const verifyOTP = async (phone: string, otp: string, purpose: string = 'auth', driverData?: any) => {
     try {
-      console.log(`🔍 Verifying OTP for ${phone}: ${otp}, Purpose: ${purpose}`);
-      
-      const response = await apiService.verifyDriverOTP(phone, otp, purpose, driverData);
-      
-      console.log('🔍 OTP Verification Response:', response);
+      const phoneNumber = phone.replace(/[^0-9]/g, '');
+      const response = await apiService.verifyDriverOTP(phoneNumber, otp, purpose, driverData);
       
       if (response.success) {
-        if (purpose === 'login' && response.token) {
-          console.log('✅ Login successful, storing token');
-          // Store the token for login
+        if (response.token) {
           apiService.setAuthToken(response.token, 'driver');
-          
-          // Store in localStorage
           localStorage.setItem('isDriverLoggedIn', 'true');
-          localStorage.setItem('driverPhone', phone);
-          
-          // Fetch complete driver profile
+          localStorage.setItem('driverPhone', phoneNumber);
           await refreshDriverData();
           setIsLoggedIn(true);
         }
-        // For signup, just return success - no token needed
         return response;
       } else {
-        throw new Error(response.error?.message || 'OTP verification failed');
+        throw new Error(response.error?.message || response.message || 'OTP verification failed');
       }
     } catch (error) {
       console.error('Verify OTP error:', error);
@@ -310,11 +336,12 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
     }
   };
 
-  const resendOTP = async (phone: string, purpose: 'signup' | 'login') => {
+  const resendOTP = async (phone: string, purpose: string = 'auth') => {
     try {
-      const response = await apiService.resendDriverOTP(phone, purpose);
+      const phoneNumber = phone.replace(/[^0-9]/g, '');
+      const response = await apiService.resendDriverOTP(phoneNumber, purpose);
       if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to resend OTP');
+        throw new Error(response.error?.message || response.message || 'Failed to resend OTP');
       }
       return response;
     } catch (error) {
@@ -334,6 +361,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       apiService.removeAuthToken('driver');
       localStorage.removeItem('isDriverLoggedIn');
       localStorage.removeItem('driverPhone');
+      localStorage.removeItem('driverData');
       
       // Redirect to driver auth page
       window.location.href = '/driver/auth';
@@ -345,14 +373,28 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       apiService.removeAuthToken('driver');
       localStorage.removeItem('isDriverLoggedIn');
       localStorage.removeItem('driverPhone');
+      localStorage.removeItem('driverData');
       window.location.href = '/driver/auth';
     }
   };
 
   const updateDriverData = (data: Partial<Driver>) => {
-    if (driver) {
-      setDriver({ ...driver, ...data });
-    }
+    setDriver((prev) => {
+      if (!prev) return null;
+      const updated = {
+        ...prev,
+        ...data,
+        agreement: data.agreement ? { ...prev.agreement, ...data.agreement } : prev.agreement,
+        documents: data.documents ? { ...prev.documents, ...data.documents } : prev.documents,
+        vehicleDetails: data.vehicleDetails ? { ...prev.vehicleDetails, ...data.vehicleDetails } : prev.vehicleDetails,
+      };
+      try {
+        localStorage.setItem('driverData', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to cache driverData', e);
+      }
+      return updated;
+    });
   };
 
   useEffect(() => {
@@ -364,6 +406,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
     isLoggedIn,
     isLoading,
     login,
+    registerDriver,
     sendOTP,
     verifyOTP,
     resendOTP,

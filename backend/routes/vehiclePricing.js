@@ -25,14 +25,14 @@ router.get('/vehicle/:vehicleId', [
   param('vehicleId').isMongoId().withMessage('Invalid vehicle ID')
 ], validate, getPricingForVehicle);
 router.get('/calculate', [
-  query('category').isIn(['auto', 'car', 'bus']).withMessage('Invalid category'),
+  query('category').isIn(['car', 'bus', 'auto']).withMessage('Invalid category'),
   query('vehicleType').notEmpty().withMessage('Vehicle type is required'),
   query('vehicleModel').optional().isString().withMessage('Vehicle model must be a string'),
   query('tripType').optional().isIn(['one-way', 'return']).withMessage('Invalid trip type')
 ], validate, getPricingForCalculation);
 
 router.post('/calculate-fare', [
-  body('category').isIn(['auto', 'car', 'bus']).withMessage('Invalid category'),
+  body('category').isIn(['car', 'bus', 'auto']).withMessage('Invalid category'),
   body('vehicleType').notEmpty().withMessage('Vehicle type is required'),
   body('vehicleModel').optional().isString().withMessage('Vehicle model must be a string'),
   body('tripType').optional().isIn(['one-way', 'return']).withMessage('Invalid trip type'),
@@ -42,7 +42,7 @@ router.post('/calculate-fare', [
 
 // Admin routes (authentication required)
 router.get('/admin', protectAdmin, [
-  query('category').optional().isIn(['auto', 'car', 'bus']).withMessage('Invalid category'),
+  query('category').optional().isIn(['car', 'bus', 'auto']).withMessage('Invalid category'),
   query('tripType').optional().isIn(['one-way', 'return']).withMessage('Invalid trip type'),
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100')
@@ -53,42 +53,13 @@ router.get('/admin/:id', protectAdmin, [
 ], validate, getVehiclePricingById);
 
 router.post('/admin', protectAdmin, [
-  body('category').isIn(['auto', 'car', 'bus']).withMessage('Invalid category'),
+  body('category').isIn(['car', 'bus', 'auto']).withMessage('Invalid category'),
   body('vehicleType').notEmpty().withMessage('Vehicle type is required'),
   body('vehicleModel').notEmpty().withMessage('Vehicle model is required'),
   body('tripType').isIn(['one-way', 'return']).withMessage('Invalid trip type'),
-  body('autoPrice').custom((value, { req }) => {
-    if (req.body.category === 'auto') {
-      if (value === undefined || value === null || value <= 0) {
-        throw new Error('Auto price is required and must be greater than 0 for auto category');
-      }
-    }
-    return true;
-  }),
-  body('distancePricing.50km').custom((value, { req }) => {
-    if (req.body.category !== 'auto') {
-      if (value === undefined || value === null || value < 0) {
-        throw new Error('50km pricing is required for car and bus categories');
-      }
-    }
-    return true;
-  }),
-  body('distancePricing.100km').custom((value, { req }) => {
-    if (req.body.category !== 'auto') {
-      if (value === undefined || value === null || value < 0) {
-        throw new Error('100km pricing is required for car and bus categories');
-      }
-    }
-    return true;
-  }),
-  body('distancePricing.150km').custom((value, { req }) => {
-    if (req.body.category !== 'auto') {
-      if (value === undefined || value === null || value < 0) {
-        throw new Error('150km pricing is required for car and bus categories');
-      }
-    }
-    return true;
-  }),
+  body('distancePricing.50km').notEmpty().withMessage('50km pricing is required'),
+  body('distancePricing.100km').notEmpty().withMessage('100km pricing is required'),
+  body('distancePricing.150km').notEmpty().withMessage('150km pricing is required'),
   body('notes').optional().isString().withMessage('Notes must be a string'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
   body('isDefault').optional().isBoolean().withMessage('isDefault must be a boolean')
@@ -110,50 +81,13 @@ router.delete('/admin/:id', protectAdmin, [
 
 router.post('/admin/bulk', protectAdmin, [
   body('pricingData').isArray().withMessage('pricingData must be an array'),
-  body('pricingData.*.category').isIn(['auto', 'car', 'bus']).withMessage('Invalid category'),
+  body('pricingData.*.category').isIn(['car', 'bus', 'auto']).withMessage('Invalid category'),
   body('pricingData.*.vehicleType').notEmpty().withMessage('Vehicle type is required'),
   body('pricingData.*.vehicleModel').notEmpty().withMessage('Vehicle model is required'),
   body('pricingData.*.tripType').isIn(['one-way', 'return']).withMessage('Invalid trip type'),
-  body('pricingData.*.autoPrice').custom((value, { req, path }) => {
-    const index = path.split('.')[1];
-    const category = req.body.pricingData[index]?.category;
-    if (category === 'auto') {
-      if (value === undefined || value === null || value <= 0) {
-        throw new Error('Auto price is required and must be greater than 0 for auto category');
-      }
-    }
-    return true;
-  }),
-  body('pricingData.*.distancePricing.50km').custom((value, { req, path }) => {
-    const index = path.split('.')[1];
-    const category = req.body.pricingData[index]?.category;
-    if (category !== 'auto') {
-      if (value === undefined || value === null || value < 0) {
-        throw new Error('50km pricing is required for car and bus categories');
-      }
-    }
-    return true;
-  }),
-  body('pricingData.*.distancePricing.100km').custom((value, { req, path }) => {
-    const index = path.split('.')[1];
-    const category = req.body.pricingData[index]?.category;
-    if (category !== 'auto') {
-      if (value === undefined || value === null || value < 0) {
-        throw new Error('100km pricing is required for car and bus categories');
-      }
-    }
-    return true;
-  }),
-  body('pricingData.*.distancePricing.150km').custom((value, { req, path }) => {
-    const index = path.split('.')[1];
-    const category = req.body.pricingData[index]?.category;
-    if (category !== 'auto') {
-      if (value === undefined || value === null || value < 0) {
-        throw new Error('150km pricing is required for car and bus categories');
-      }
-    }
-    return true;
-  })
+  body('pricingData.*.distancePricing.50km').notEmpty().withMessage('50km pricing is required'),
+  body('pricingData.*.distancePricing.100km').notEmpty().withMessage('100km pricing is required'),
+  body('pricingData.*.distancePricing.150km').notEmpty().withMessage('150km pricing is required')
 ], validate, bulkUpdateVehiclePricing);
 
 module.exports = router;

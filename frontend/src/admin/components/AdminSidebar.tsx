@@ -24,7 +24,11 @@ import {
   Bike,
   X,
   Menu,
-  Gift
+  Gift,
+  HelpCircle,
+  RotateCcw,
+  SlidersHorizontal,
+  Star
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -63,19 +67,24 @@ const AdminSidebar = ({ isMobileOpen = false, onMobileOpenChange }: AdminSidebar
       icon: Car,
     },
     {
+      title: "Vehicle Settings",
+      href: "/admin/vehicle-settings",
+      icon: SlidersHorizontal,
+    },
+    {
       title: "Vehicle Management",
       href: "/admin/vehicles",
       icon: Bus,
     },
     {
-      title: "Price Management",
-      href: "/admin/prices",
-      icon: BarChart3,
-    },
-    {
       title: "Booking Management",
       href: "/admin/bookings",
       icon: Calendar,
+    },
+    {
+      title: "Admin Earning Check",
+      href: "/admin/earnings",
+      icon: TrendingUp,
     },
     {
       title: "Payment Management",
@@ -87,10 +96,42 @@ const AdminSidebar = ({ isMobileOpen = false, onMobileOpenChange }: AdminSidebar
       href: "/admin/offers",
       icon: Gift,
     },
+    {
+      title: "Rating & Reviews",
+      href: "/admin/reviews",
+      icon: Star,
+    },
+    {
+      title: "Help & Support",
+      href: "/admin/help",
+      icon: HelpCircle,
+    },
+    {
+      title: "Terms & Conditions",
+      href: "/admin/terms",
+      icon: FileText,
+    },
+    {
+      title: "Privacy Policy",
+      href: "/admin/privacy",
+      icon: Shield,
+    },
+    {
+      title: "Refund Policy",
+      href: "/admin/refund",
+      icon: RotateCcw,
+    },
   ];
 
   const isActive = (href: string) => {
-    return location.pathname === href;
+    if (href === "/admin") return location.pathname === "/admin";
+    if (href === "/admin/terms") {
+      return location.pathname.startsWith("/admin/terms") || location.pathname.startsWith("/admin/driver-terms");
+    }
+    if (href === "/admin/privacy") {
+      return location.pathname.startsWith("/admin/privacy") || location.pathname.startsWith("/admin/driver-privacy");
+    }
+    return location.pathname.startsWith(href);
   };
 
   const renderSidebarItem = (item: SidebarItem) => {

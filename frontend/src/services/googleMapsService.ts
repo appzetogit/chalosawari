@@ -10,22 +10,40 @@ export interface LocationSuggestion {
 
 class GoogleMapsService {
   private apiKey: string;
-  private autocompleteService: any = null;
-  private placesService: any = null;
-  private map: any = null;
   private isInitialized: boolean = false;
   private isInitializing: boolean = false;
   private scriptLoaded: boolean = false;
 
+  private userLocation: { lat: number; lng: number } | null = null;
+
   constructor() {
-    // You'll need to add your Google Maps API key to your environment variables
+    // Key is served by the backend (/api/config/maps-key); env value is only a local fallback
     this.apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-    
-    if (!this.apiKey) {
-      console.warn('Google Maps API key not found. Location autocomplete will be disabled.');
-      console.warn('To enable location features, add VITE_GOOGLE_MAPS_API_KEY to your environment variables.');
-      console.warn('See GOOGLE_MAPS_SETUP.md for detailed setup instructions.');
+  }
+
+  // Fetch the Maps key from the backend so it is managed in one place
+  private async loadApiKey(): Promise<void> {
+    try {
+      const base = import.meta.env.VITE_API_BASE_URL || '/api';
+      const res = await fetch(`${base}/config/maps-key`);
+      const data = await res.json();
+      if (data?.key) this.apiKey = data.key;
+    } catch (error) {
+      console.warn('Could not fetch Google Maps key from backend, using env fallback');
     }
+  }
+
+  getApiKey(): string {
+    return this.apiKey;
+  }
+
+  // Ask once for the device location so suggestions are biased to where the user is
+  private loadUserLocation(): void {
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => { this.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      () => { /* denied/unavailable: suggestions stay India-wide */ },
+      { timeout: 10000, maximumAge: 300000 }
+    );
   }
 
   // Initialize Google Maps services
@@ -39,21 +57,16 @@ class GoogleMapsService {
       return;
     }
     
-    // Check if API key is available
-    if (!this.apiKey) {
-      console.warn('Google Maps API key not found. Location features will be disabled.');
-      console.warn('To enable location features:');
-      console.warn('1. Create a .env file in the frontend directory');
-      console.warn('2. Add: VITE_GOOGLE_MAPS_API_KEY=your_actual_api_key_here');
-      console.warn('3. Get your API key from: https://console.cloud.google.com/apis/credentials');
-      console.warn('4. See GOOGLE_MAPS_SETUP.md for detailed setup instructions');
-      this.isInitialized = false;
-      return; // Don't throw error, just return gracefully
-    }
-    
     this.isInitializing = true;
-    
+
     try {
+      await this.loadApiKey();
+      if (!this.apiKey) {
+        console.warn('Google Maps API key not configured on backend (GOOGLE_MAPS_API_KEY). Location features disabled.');
+        return;
+      }
+      this.loadUserLocation();
+
       if (typeof (window as any).google === 'undefined') {
         await this.loadGoogleMapsScript();
       }
@@ -61,12 +74,7 @@ class GoogleMapsService {
       // Wait for the script to fully load
       await this.waitForGoogleMaps();
       
-      if (typeof (window as any).google !== 'undefined' && 
-          (window as any).google.maps && 
-          (window as any).google.maps.places &&
-          (window as any).google.maps.places.AutocompleteService) {
-        this.autocompleteService = new (window as any).google.maps.places.AutocompleteService();
-        this.placesService = new (window as any).google.maps.places.PlacesService(this.createDummyMap());
+      if ((window as any).google?.maps?.places?.AutocompleteSuggestion) {
         this.isInitialized = true;
         console.log('Google Maps service initialized successfully');
       } else {
@@ -93,10 +101,7 @@ class GoogleMapsService {
       const checkGoogleMaps = () => {
         attempts++;
         
-        if (typeof (window as any).google !== 'undefined' && 
-            (window as any).google.maps && 
-            (window as any).google.maps.places &&
-            (window as any).google.maps.places.AutocompleteService) {
+        if ((window as any).google?.maps?.places?.AutocompleteSuggestion) {
           resolve();
         } else if (attempts >= maxAttempts) {
           reject(new Error('Google Maps failed to load within timeout'));
@@ -132,7 +137,7 @@ class GoogleMapsService {
       }
 
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${this.apiKey}&libraries=places`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${this.apiKey}&libraries=places&v=weekly`;
       script.async = true;
       script.defer = true;
       
@@ -149,126 +154,105 @@ class GoogleMapsService {
     });
   }
 
-  // Create a dummy map element for Places service
-  private createDummyMap(): HTMLElement {
-    const div = document.createElement('div');
-    div.style.display = 'none';
-    document.body.appendChild(div);
-    return div;
-  }
-
-  // Get location suggestions based on input
+  // Get location suggestions based on input (Places API New - legacy AutocompleteService can't be enabled on new projects)
   async getLocationSuggestions(input: string): Promise<LocationSuggestion[]> {
-    if (!this.isInitialized || !this.autocompleteService || !input.trim()) {
+    if (!this.isInitialized || !input.trim()) {
       return [];
     }
 
     try {
-      const request = {
-        input: input,
-        // Use only geocode type - it covers cities, addresses, landmarks, etc.
-        // Alternative options (use only one):
-        // types: ['(cities)'] - for cities only
-        // types: ['(regions)'] - for states/provinces
-        // types: ['geocode'] - for all types (recommended)
-        types: ['geocode'],
-        componentRestrictions: { country: 'IN' }, // Restrict to India
-        // Set language to English for English results
-        language: 'en', // English language for English results
-        region: 'IN' // India region bias
-      };
-
-      return new Promise((resolve) => {
-        this.autocompleteService.getPlacePredictions(request, (predictions: any, status: string) => {
-          // Check if status is OK (string comparison)
-          if (status === 'OK' && predictions && predictions.length > 0) {
-            const suggestions: LocationSuggestion[] = predictions.map((prediction: any) => ({
-              place_id: prediction.place_id,
-              description: prediction.description,
-              structured_formatting: {
-                main_text: prediction.structured_formatting?.main_text || '',
-                secondary_text: prediction.structured_formatting?.secondary_text || ''
-              }
-            }));
-            resolve(suggestions);
-          } else {
-            resolve([]);
-          }
-        });
+      const { suggestions } = await (window as any).google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input,
+        includedRegionCodes: ['in'], // Restrict to India
+        language: 'en',
+        region: 'in',
+        // Prefer places near the user's current location when we have it
+        ...(this.userLocation && {
+          locationBias: { center: this.userLocation, radius: 50000 }
+        })
       });
+
+      return (suggestions || [])
+        .filter((s: any) => s.placePrediction)
+        .map(({ placePrediction: p }: any) => ({
+          place_id: p.placeId,
+          description: p.text?.text || '',
+          structured_formatting: {
+            main_text: p.mainText?.text || '',
+            secondary_text: p.secondaryText?.text || ''
+          }
+        }));
     } catch (error) {
       console.error('Error getting location suggestions:', error);
       return [];
     }
   }
 
-  // Get place details by place_id with enhanced address components
+  // Get place details by place_id, returned in the legacy shape callers expect
+  // (geometry.location.lat(), address_components[].long_name, formatted_address)
   async getPlaceDetails(placeId: string): Promise<any> {
-    if (!this.placesService) {
+    if (!this.isInitialized || !placeId || placeId === 'current_location') {
       return null;
     }
 
     try {
-      const request = {
-        placeId: placeId,
-        fields: [
-          'name', 
-          'formatted_address', 
-          'geometry', 
-          'place_id',
-          'address_components',
-          'types'
-        ]
+      const { Place } = (window as any).google.maps.places;
+      const p = new Place({ id: placeId });
+      await p.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'addressComponents', 'types'] });
+
+      const place: any = {
+        name: p.displayName,
+        formatted_address: p.formattedAddress,
+        geometry: { location: p.location },
+        place_id: placeId,
+        types: p.types,
+        address_components: (p.addressComponents || []).map((c: any) => ({
+          long_name: c.longText,
+          short_name: c.shortText,
+          types: c.types
+        }))
       };
 
-      return new Promise((resolve) => {
-        this.placesService.getDetails(request, (place: any, status: string) => {
-          if (status === 'OK' && place) {
-            // Process address components to extract detailed information
-            const addressComponents = place.address_components || [];
-            const detailedAddress = {
-              street_number: '',
-              route: '',
-              sublocality: '', // Village/Neighborhood
-              locality: '', // City
-              administrative_area_level_2: '', // District
-              administrative_area_level_1: '', // State
-              country: '',
-              postal_code: '',
-              formatted_address: place.formatted_address
-            };
+      // Process address components to extract detailed information
+      const addressComponents = place.address_components || [];
+      const detailedAddress = {
+        street_number: '',
+        route: '',
+        sublocality: '', // Village/Neighborhood
+        locality: '', // City
+        administrative_area_level_2: '', // District
+        administrative_area_level_1: '', // State
+        country: '',
+        postal_code: '',
+        formatted_address: place.formatted_address
+      };
 
-            // Map address components to our structure
-            addressComponents.forEach((component: any) => {
-              const types = component.types;
-              if (types.includes('street_number')) {
-                detailedAddress.street_number = component.long_name;
-              } else if (types.includes('route')) {
-                detailedAddress.route = component.long_name;
-              } else if (types.includes('sublocality') || types.includes('neighborhood')) {
-                detailedAddress.sublocality = component.long_name;
-              } else if (types.includes('locality')) {
-                detailedAddress.locality = component.long_name;
-              } else if (types.includes('administrative_area_level_2')) {
-                detailedAddress.administrative_area_level_2 = component.long_name;
-              } else if (types.includes('administrative_area_level_1')) {
-                detailedAddress.administrative_area_level_1 = component.long_name;
-              } else if (types.includes('country')) {
-                detailedAddress.country = component.long_name;
-              } else if (types.includes('postal_code')) {
-                detailedAddress.postal_code = component.long_name;
-              }
-            });
-
-            // Add detailed address to the place object
-            place.detailedAddress = detailedAddress;
-            
-            resolve(place);
-          } else {
-            resolve(null);
-          }
-        });
+      // Map address components to our structure
+      addressComponents.forEach((component: any) => {
+        const types = component.types;
+        if (types.includes('street_number')) {
+          detailedAddress.street_number = component.long_name;
+        } else if (types.includes('route')) {
+          detailedAddress.route = component.long_name;
+        } else if (types.includes('sublocality') || types.includes('neighborhood')) {
+          detailedAddress.sublocality = component.long_name;
+        } else if (types.includes('locality')) {
+          detailedAddress.locality = component.long_name;
+        } else if (types.includes('administrative_area_level_2')) {
+          detailedAddress.administrative_area_level_2 = component.long_name;
+        } else if (types.includes('administrative_area_level_1')) {
+          detailedAddress.administrative_area_level_1 = component.long_name;
+        } else if (types.includes('country')) {
+          detailedAddress.country = component.long_name;
+        } else if (types.includes('postal_code')) {
+          detailedAddress.postal_code = component.long_name;
+        }
       });
+
+      // Add detailed address to the place object
+      place.detailedAddress = detailedAddress;
+
+      return place;
     } catch (error) {
       console.error('Error getting place details:', error);
       return null;
@@ -279,17 +263,16 @@ class GoogleMapsService {
   isReady(): boolean {
     // If no API key, service is not ready but that's expected
     if (!this.apiKey) {
-      return false;
+return false;
     }
-    const ready = this.isInitialized && this.autocompleteService !== null && this.placesService !== null;
-    return ready;
+    return this.isInitialized;
   }
 
   // Force re-initialization
   async reinitialize(): Promise<void> {
     // Only reinitialize if not already initialized or if there's an issue
     if (!this.isInitialized && !this.isInitializing) {
-      await this.initialize();
+await this.initialize();
     }
   }
 }

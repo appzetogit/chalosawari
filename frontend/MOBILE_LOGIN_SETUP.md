@@ -22,7 +22,7 @@ This implementation enforces login requirement for mobile users while allowing d
 The following routes now require login on mobile devices:
 - `/` (Home page)
 - `/help` (Help page)
-- `/vihicle-search` (Vehicle search page)
+- `/vehicle-search` (Vehicle search page)
 
 ### Unprotected Routes
 These routes remain accessible without login:

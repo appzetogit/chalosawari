@@ -4,19 +4,12 @@ const {
   createBooking,
   getBookingReceipt,
   cancelBooking,
-  updateBookingStatus,
-  collectCashPayment,
-  testPuppeteer
+  collectCashPayment
 } = require('../controllers/bookingController');
 const { protect, protectDriver } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 
 const router = express.Router();
-
-// Apply authentication middleware to specific routes that need general user protection
-
-// Test Puppeteer endpoint
-router.get('/test-puppeteer', testPuppeteer);
 
 // Create new booking
 router.post('/', [
@@ -34,8 +27,9 @@ router.post('/', [
   body('tripType').optional().isIn(['one-way', 'return']).withMessage('Invalid trip type'),
   body('passengers').optional().isInt({ min: 1, max: 20 }).withMessage('Passengers must be between 1 and 20'),
   body('specialRequests').optional().isString().withMessage('Special requests must be a string'),
-  body('paymentMethod').isIn(['cash', 'upi', 'netbanking', 'card', 'razorpay']).withMessage('Invalid payment method')
-], validate, protect, createBooking);
+  body('paymentMethod').isIn(['cash', 'upi', 'netbanking', 'card', 'razorpay']).withMessage('Invalid payment method'),
+  body('paymentId').isMongoId().withMessage('Payment is required before booking')
+], protect, validate, createBooking);
 
 // Get booking receipt
 router.get('/:id/receipt', protect, getBookingReceipt);
@@ -45,12 +39,6 @@ router.put('/:id/cancel', [
   param('id').isMongoId().withMessage('Invalid booking ID'),
   body('reason').optional().isString().withMessage('Reason must be a string')
 ], validate, protect, cancelBooking);
-
-// Update booking status
-router.put('/:id/status', [
-  param('id').isMongoId().withMessage('Invalid booking ID'),
-  body('status').isIn(['pending', 'accepted', 'started', 'completed', 'cancelled']).withMessage('Invalid status')
-], validate, protect, updateBookingStatus);
 
 // Collect cash payment (for partial payment bookings)
 router.put('/:id/collect-cash-payment', [

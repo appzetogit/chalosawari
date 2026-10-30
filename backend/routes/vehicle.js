@@ -34,7 +34,7 @@ const router = express.Router();
 router.post('/', [
   protectDriver,
   uploadDocumentsWithErrorHandling,
-  body('type').isIn(['bus', 'car', 'auto']).withMessage('Invalid vehicle type'),
+  body('type').isIn(['bus', 'car']).withMessage('Invalid vehicle type'),
   body('brand').isString().trim().isLength({ min: 1, max: 50 }).withMessage('Brand must be between 1 and 50 characters'),
   body('fuelType').isIn(['petrol', 'diesel', 'cng', 'electric', 'hybrid']).withMessage('Invalid fuel type'),
   body('seatingCapacity').isInt({ min: 1, max: 100 }).withMessage('Seating capacity must be between 1 and 100'),
@@ -50,17 +50,16 @@ router.post('/', [
   body('permitExpiryDate').optional().isISO8601().withMessage('Permit expiry date must be a valid date'),
   body('pucNumber').optional().isString().trim().withMessage('PUC number must be a string'),
   body('pucExpiryDate').optional().isISO8601().withMessage('PUC expiry date must be a valid date'),
-  body('pricingReference.category').isIn(['auto', 'car', 'bus']).withMessage('Invalid vehicle category'),
+  body('pricingReference.category').isIn(['car', 'bus']).withMessage('Invalid vehicle category'),
   body('pricingReference.vehicleType').notEmpty().withMessage('Vehicle type is required'),
   body('pricingReference.vehicleModel').notEmpty().withMessage('Vehicle model is required'),
   body('workingDays').optional().isArray().withMessage('Working days must be an array'),
   body('workingHoursStart').optional().isString().withMessage('Working hours start must be a string'),
   body('workingHoursEnd').optional().isString().withMessage('Working hours end must be a string'),
   body('operatingCities').optional().isArray().withMessage('Operating cities must be an array'),
-  body('operatingStates').optional().isArray().withMessage('Operating states must be an array'),
-  body('vehicleLocation.latitude').isFloat({ min: -90, max: 90 }).withMessage('Vehicle location latitude must be between -90 and 90'),
-  body('vehicleLocation.longitude').isFloat({ min: -180, max: 180 }).withMessage('Vehicle location longitude must be between -180 and 180'),
-  body('vehicleLocation.address').isString().withMessage('Vehicle location address is required'),
+  body('vehicleLocation.latitude').optional().isFloat({ min: -90, max: 90 }).withMessage('Vehicle location latitude must be between -90 and 90'),
+  body('vehicleLocation.longitude').optional().isFloat({ min: -180, max: 180 }).withMessage('Vehicle location longitude must be between -180 and 180'),
+  body('vehicleLocation.address').optional().isString().withMessage('Vehicle location address must be a string'),
   body('vehicleLocation.city').optional().isString().withMessage('Vehicle location city must be a string'),
   body('vehicleLocation.state').optional().isString().withMessage('Vehicle location state must be a string')
 ], validate, createVehicle);
@@ -68,8 +67,7 @@ router.post('/', [
 
 
 
-// GET /api/vehicles/auto
-router.get('/auto', getVehicleAuto);
+// GET /api/vehicles/car & /api/vehicles/bus
 router.get('/bus', getVehicleBus);
 router.get('/car', getVehicleCar);
 
@@ -82,14 +80,14 @@ router.get('/driver/my-vehicles', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
   query('status').optional().isIn(['all', 'active', 'inactive', 'maintenance']).withMessage('Invalid status'),
-  query('type').optional().isIn(['all', 'bus', 'car', 'auto']).withMessage('Invalid vehicle type')
+  query('type').optional().isIn(['all', 'bus', 'car']).withMessage('Invalid vehicle type')
 ], validate, getDriverVehicles);
 
 router.put('/:id', [
   protectDriver,
   uploadDocumentsWithErrorHandling,
   param('id').isMongoId().withMessage('Invalid vehicle ID'),
-  body('type').optional().isIn(['bus', 'car', 'auto']).withMessage('Invalid vehicle type'),
+  body('type').optional().isIn(['bus', 'car']).withMessage('Invalid vehicle type'),
   body('brand').optional().isString().trim().isLength({ min: 1, max: 50 }).withMessage('Brand must be between 1 and 50 characters'),
   body('fuelType').optional().isIn(['petrol', 'diesel', 'cng', 'electric', 'hybrid']).withMessage('Invalid fuel type'),
   body('seatingCapacity').optional().isInt({ min: 1, max: 100 }).withMessage('Seating capacity must be between 1 and 100'),
@@ -107,7 +105,7 @@ router.put('/:id', [
   body('pucExpiryDate').optional().isISO8601().withMessage('PUC expiry date must be a valid date'),
   body('rcNumber').optional().isString().trim().withMessage('RC number must be a string'),
   body('rcExpiryDate').optional().isISO8601().withMessage('RC expiry date must be a valid date'),
-  body('pricingReference.category').optional().isIn(['auto', 'car', 'bus']).withMessage('Invalid vehicle category'),
+  body('pricingReference.category').optional().isIn(['car', 'bus']).withMessage('Invalid vehicle category'),
   body('pricingReference.vehicleType').optional().notEmpty().withMessage('Vehicle type is required'),
   body('pricingReference.vehicleModel').optional().notEmpty().withMessage('Vehicle model is required'),
   body('workingDays').optional().isArray().withMessage('Working days must be an array'),
@@ -145,7 +143,7 @@ router.get('/search', [
   query('destination').optional().isString().withMessage('Destination must be a string'),
   query('date').optional().isISO8601().withMessage('Date must be a valid date'),
   query('passengers').optional().isInt({ min: 1, max: 20 }).withMessage('Passengers must be between 1 and 20'),
-  query('vehicleType').optional().isIn(['car', 'bike', 'auto', 'bus', 'truck']).withMessage('Invalid vehicle type'),
+  query('vehicleType').optional().isIn(['car', 'bus']).withMessage('Invalid vehicle type'),
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100')
 ], validate, searchVehicles);
@@ -156,14 +154,14 @@ router.get('/nearby', [
   query('latitude').isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90'),
   query('longitude').isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
   query('radius').optional().isFloat({ min: 0.1, max: 100 }).withMessage('Radius must be between 0.1 and 100 km'),
-  query('vehicleType').optional().isIn(['car', 'bike', 'auto', 'bus', 'truck']).withMessage('Invalid vehicle type'),
+  query('vehicleType').optional().isIn(['car', 'bus']).withMessage('Invalid vehicle type'),
   query('passengers').optional().isInt({ min: 1, max: 20 }).withMessage('Passengers must be between 1 and 20')
 ], validate, getNearbyVehicles);
 
 router.get('/location-filter', [
   query('latitude').isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90'),
   query('longitude').isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
-  query('vehicleType').optional().isIn(['car', 'auto', 'bus']).withMessage('Invalid vehicle type'),
+  query('vehicleType').optional().isIn(['car', 'bus']).withMessage('Invalid vehicle type'),
   query('passengers').optional().isInt({ min: 1, max: 100 }).withMessage('Passengers must be between 1 and 100'),
   query('date').optional().isISO8601().withMessage('Date must be a valid date'),
   query('returnDate').optional().isISO8601().withMessage('Return date must be a valid date'),
@@ -251,36 +249,5 @@ router.post('/:id/maintenance', [
 
 
 
-
-// Temporary endpoint to approve all pending vehicles (for testing)
-router.post('/approve-all-pending', async (req, res) => {
-  try {
-    const Vehicle = require('../models/Vehicle');
-    
-    const result = await Vehicle.updateMany(
-      { approvalStatus: 'pending' },
-      { 
-        $set: { 
-          approvalStatus: 'approved',
-          isApproved: true,
-          approvedAt: new Date(),
-          adminNotes: 'Auto-approved via API endpoint'
-        }
-      }
-    );
-    
-    res.json({
-      success: true,
-      message: `Successfully approved ${result.modifiedCount} pending vehicles`,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error approving vehicles',
-      error: error.message
-    });
-  }
-});
 
 module.exports = router;

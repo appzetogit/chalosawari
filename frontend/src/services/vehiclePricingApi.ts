@@ -16,11 +16,10 @@ export interface DistanceBasedPricing {
 
 export interface VehiclePricing {
   _id?: string;
-  category: 'auto' | 'car' | 'bus';
+  category: 'car' | 'bus';
   vehicleType: string;
   vehicleModel: string;
   tripType: 'one-way' | 'return';
-  autoPrice: number;
   distancePricing: DistanceBasedPricing;
   notes?: string;
   isActive: boolean;
@@ -30,7 +29,7 @@ export interface VehiclePricing {
 }
 
 export interface PricingCalculationRequest {
-  category: 'auto' | 'car' | 'bus';
+  category: 'car' | 'bus';
   vehicleType: string;
   vehicleModel?: string;
   tripType?: 'one-way' | 'return';
@@ -102,8 +101,8 @@ class VehiclePricingApiService {
         headers: this.getAuthHeaders()
       });
       if (!response.ok) {
-        if (response.status === 404) {
-          return null; // No pricing found
+        if (response.status === 404 || response.status === 400) {
+          return null; // No pricing found or invalid combination
         }
         throw new Error('Failed to fetch pricing');
       }

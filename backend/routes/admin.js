@@ -1,7 +1,6 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 const {
-  adminSignup,
   adminLogin,
   getAdminProfile,
   updateAdminProfile,
@@ -17,6 +16,7 @@ const {
   bulkDeleteUsers,
   getAllDrivers,
   getDriverById,
+  updateDriverById,
   updateDriverStatus,
   createDriver,
   deleteDriver,
@@ -32,6 +32,7 @@ const {
   getBookingById,
   updateBookingStatus,
   processRefund,
+  adminCancelBooking,
   getBookingPaymentDetails,
   updateCashPaymentStatus,
   approveCancellationRequest,
@@ -45,26 +46,18 @@ const {
   deleteDriverDocument,
   deleteDriverInsuranceDocument
 } = require('../controllers/adminController');
+const {
+  getVehicleEarnings,
+  getVehicleBookingEarnings
+} = require('../controllers/adminEarningsController');
+const { getAdminReviews } = require('../controllers/adminReviewController');
 const { protectAdmin } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { uploadDocumentWithErrorHandling } = require('../utils/driverDocumentUpload');
 
 const router = express.Router();
 
-// Public admin auth routes (no authentication required)
-router.post('/signup', [
-  body('firstName').trim().isLength({ min: 2, max: 50 }).withMessage('First name must be between 2 and 50 characters'),
-  body('lastName').trim().isLength({ min: 2, max: 50 }).withMessage('Last name must be between 2 and 50 characters'),
-  body('phone').isMobilePhone('en-IN').withMessage('Please provide a valid Indian phone number'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
-  body('confirmPassword').custom((value, { req }) => {
-    if (value !== req.body.password) {
-      throw new Error('Password and confirm password do not match');
-    }
-    return true;
-  }).withMessage('Password and confirm password do not match')
-], validate, adminSignup);
-
+// Public admin auth route (admins are created with: npm run create-admin)
 router.post('/login', [
   body('phone').isMobilePhone('en-IN').withMessage('Please provide a valid Indian phone number'),
   body('password').notEmpty().withMessage('Password is required')
@@ -106,6 +99,18 @@ router.get('/users', [
   query('sortOrder').optional().isIn(['asc', 'desc']).withMessage('Sort order must be asc or desc')
 ], validate, getAllUsers);
 
+router.put('/users/bulk/status', [
+  body('userIds').isArray({ min: 1 }).withMessage('User IDs array is required'),
+  body('userIds.*').isMongoId().withMessage('Invalid user ID'),
+  body('status').isIn(['active', 'inactive', 'suspended', 'pending']).withMessage('Invalid status'),
+  body('reason').optional().isString().withMessage('Reason must be a string')
+], validate, bulkUpdateUserStatus);
+
+router.delete('/users/bulk', [
+  body('userIds').isArray({ min: 1 }).withMessage('User IDs array is required'),
+  body('userIds.*').isMongoId().withMessage('Invalid user ID')
+], validate, bulkDeleteUsers);
+
 router.get('/users/:id', [
   param('id').isMongoId().withMessage('Invalid user ID')
 ], validate, getUserById);
@@ -139,18 +144,6 @@ router.put('/users/:id/verification', [
   body('isVerified').isBoolean().withMessage('isVerified must be a boolean')
 ], validate, toggleUserVerification);
 
-router.put('/users/bulk/status', [
-  body('userIds').isArray({ min: 1 }).withMessage('User IDs array is required'),
-  body('userIds.*').isMongoId().withMessage('Invalid user ID'),
-  body('status').isIn(['active', 'inactive', 'suspended', 'pending']).withMessage('Invalid status'),
-  body('reason').optional().isString().withMessage('Reason must be a string')
-], validate, bulkUpdateUserStatus);
-
-router.delete('/users/bulk', [
-  body('userIds').isArray({ min: 1 }).withMessage('User IDs array is required'),
-  body('userIds.*').isMongoId().withMessage('Invalid user ID')
-], validate, bulkDeleteUsers);
-
 // Driver management routes
 router.get('/drivers', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
@@ -170,9 +163,26 @@ router.post('/drivers', [
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long')
 ], validate, createDriver);
 
+router.delete('/drivers/bulk', [
+  body('driverIds').isArray({ min: 1 }).withMessage('Driver IDs array is required'),
+  body('driverIds.*').isMongoId().withMessage('Invalid driver ID')
+], validate, bulkDeleteDrivers);
+
 router.get('/drivers/:id', [
   param('id').isMongoId().withMessage('Invalid driver ID')
 ], validate, getDriverById);
+
+router.put('/drivers/:id', [
+  param('id').isMongoId().withMessage('Invalid driver ID'),
+  body('firstName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('First name must be between 1 and 50 characters'),
+  body('lastName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be between 1 and 50 characters'),
+  body('email').optional().isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
+  body('phone').optional().isMobilePhone('en-IN').withMessage('Please provide a valid Indian phone number'),
+  body('address').optional(),
+  body('bankDetails').optional(),
+  body('isApproved').optional().isBoolean(),
+  body('isVerified').optional().isBoolean()
+], validate, updateDriverById);
 
 router.put('/drivers/:id/status', [
   param('id').isMongoId().withMessage('Invalid driver ID'),
@@ -183,11 +193,6 @@ router.put('/drivers/:id/status', [
 router.delete('/drivers/:id', [
   param('id').isMongoId().withMessage('Invalid driver ID')
 ], validate, deleteDriver);
-
-router.delete('/drivers/bulk', [
-  body('driverIds').isArray({ min: 1 }).withMessage('Driver IDs array is required'),
-  body('driverIds.*').isMongoId().withMessage('Invalid driver ID')
-], validate, bulkDeleteDrivers);
 
 // Driver document upload routes
 router.post('/drivers/:id/documents/rc-card', [
@@ -211,7 +216,7 @@ router.get('/vehicles', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
   query('search').optional().isString().withMessage('Search must be a string'),
-  query('type').optional().isIn(['car', 'bike', 'auto', 'bus', 'truck']).withMessage('Invalid vehicle type'),
+  query('type').optional().isIn(['car', 'bus']).withMessage('Invalid vehicle type'),
   query('isAvailable').optional().isIn(['true', 'false']).withMessage('isAvailable must be true or false'),
   query('approvalStatus').optional().isIn(['pending', 'approved', 'rejected']).withMessage('Invalid approval status'),
   query('sortBy').optional().isString().withMessage('Sort by must be a string'),
@@ -270,9 +275,14 @@ router.put('/bookings/:id/status', [
   body('notes').optional().isString().withMessage('Notes must be a string')
 ], validate, updateBookingStatus);
 
+router.put('/bookings/:id/cancel', [
+  param('id').isMongoId().withMessage('Invalid booking ID'),
+  body('reason').optional().isString().withMessage('Reason must be a string')
+], validate, adminCancelBooking);
+
 router.post('/bookings/:id/refund', [
   param('id').isMongoId().withMessage('Invalid booking ID'),
-  body('refundMethod').isIn(['razorpay', 'manual']).withMessage('Refund method must be razorpay or manual'),
+  body('refundMethod').optional().isIn(['razorpay', 'manual']).withMessage('Refund method must be razorpay or manual'),
   body('refundReason').optional().isString().withMessage('Refund reason must be a string'),
   body('adminNotes').optional().isString().withMessage('Admin notes must be a string')
 ], validate, processRefund);
@@ -318,5 +328,14 @@ router.get('/activity-log', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100')
 ], validate, getActivityLog);
+
+// Admin Vehicle Earnings & Profit check routes
+router.get('/earnings/vehicles', getVehicleEarnings);
+router.get('/earnings/vehicles/:vehicleId', [
+  param('vehicleId').isMongoId().withMessage('Invalid vehicle ID')
+], validate, getVehicleBookingEarnings);
+
+// Admin Ratings & Reviews route
+router.get('/reviews', getAdminReviews);
 
 module.exports = router;

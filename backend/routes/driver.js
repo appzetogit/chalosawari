@@ -11,7 +11,6 @@ const {
   getDriverVehicle,
   updateVehicle,
   getDocuments,
-  updateDocuments,
   getDriverStats,
   requestWithdrawal,
   getDriverVehicles,
@@ -23,31 +22,20 @@ const {
   getActiveTrips,
   getTripHistory,
   getTodayEarnings,
+  getCashCollected,
   acceptDriverAgreement,
-  uploadDocument
+  uploadDocument,
+  uploadAvatar
 } = require('../controllers/driverController');
 const { protectDriver } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
-const { uploadMultiple } = require('../utils/imageUpload');
+const { uploadMultiple, uploadAvatarWithErrorHandling } = require('../utils/imageUpload');
 const { uploadDocumentWithErrorHandling } = require('../utils/driverDocumentUpload');
 
 const router = express.Router();
 
 // Apply authentication middleware to all routes
 router.use(protectDriver);
-
-// Debug endpoint to test driver authentication
-router.get('/debug', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Driver authentication working',
-    driver: {
-      id: req.driver.id,
-      name: req.driver.firstName + ' ' + req.driver.lastName,
-      phone: req.driver.phone
-    }
-  });
-});
 
 // Profile routes
 router.get('/profile', getDriverProfile);
@@ -58,8 +46,10 @@ router.put('/profile', [
   body('email').optional().isEmail().withMessage('Please provide a valid email'),
   body('dateOfBirth').optional().isISO8601().withMessage('Please provide a valid date'),
   body('address').optional(),
-  body('emergencyContact').optional()
+  body('emergencyContact').optional(),
+  body('bankDetails').optional()
 ], validate, updateDriverProfile);
+router.post('/avatar', uploadAvatarWithErrorHandling, uploadAvatar);
 
 // Agreement route
 router.post('/accept-agreement', [
@@ -91,6 +81,7 @@ router.get('/earnings', [
 ], validate, getEarnings);
 
 router.get('/earnings/today', getTodayEarnings);
+router.get('/earnings/cash-collected', getCashCollected);
 
 router.get('/stats', getDriverStats);
 
@@ -159,10 +150,9 @@ router.post('/vehicles', [
   body('workingHoursStart').optional().isString().withMessage('Working hours start must be a string'),
   body('workingHoursEnd').optional().isString().withMessage('Working hours end must be a string'),
   body('operatingCities').optional().isArray().withMessage('Operating cities must be an array'),
-  body('operatingStates').optional().isArray().withMessage('Operating states must be an array'),
-  body('vehicleLocation.latitude').isFloat({ min: -90, max: 90 }).withMessage('Vehicle location latitude must be between -90 and 90'),
-  body('vehicleLocation.longitude').isFloat({ min: -180, max: 180 }).withMessage('Vehicle location longitude must be between -180 and 180'),
-  body('vehicleLocation.address').isString().withMessage('Vehicle location address is required'),
+  body('vehicleLocation.latitude').optional().isFloat({ min: -90, max: 90 }).withMessage('Vehicle location latitude must be between -90 and 90'),
+  body('vehicleLocation.longitude').optional().isFloat({ min: -180, max: 180 }).withMessage('Vehicle location longitude must be between -180 and 180'),
+  body('vehicleLocation.address').optional().isString().withMessage('Vehicle location address must be a string'),
   body('vehicleLocation.city').optional().isString().withMessage('Vehicle location city must be a string'),
   body('vehicleLocation.state').optional().isString().withMessage('Vehicle location state must be a string')
 ], validate, createVehicle);
@@ -366,14 +356,6 @@ router.put('/vehicle', [
 
 // Document routes
 router.get('/documents', getDocuments);
-router.put('/documents', [
-  body('documents.license').optional().isObject().withMessage('License must be an object'),
-  body('documents.rcBook').optional().isObject().withMessage('RC Book must be an object'),
-  body('documents.insurance').optional().isObject().withMessage('Insurance must be an object'),
-  body('documents.puc').optional().isObject().withMessage('PUC must be an object'),
-  body('documents.fitness').optional().isObject().withMessage('Fitness must be an object'),
-  body('documents.permit').optional().isObject().withMessage('Permit must be an object')
-], validate, updateDocuments);
 
 // Document upload route
 router.post('/upload-document', uploadDocumentWithErrorHandling, uploadDocument);

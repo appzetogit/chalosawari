@@ -1,3 +1,5 @@
+import { resolveUploadsUrls } from '../utils/imageUrl';
+
 interface VehicleImage {
   _id: string;
   url: string;
@@ -39,7 +41,7 @@ interface VehicleDocument {
 }
 
 interface VehiclePricingReference {
-  category: 'auto' | 'car' | 'bus';
+  category: 'car' | 'bus';
   vehicleType: string;
   vehicleModel: string;
 }
@@ -93,7 +95,7 @@ interface VehicleStatistics {
 export interface Vehicle {
   _id: string;
   driver: string;
-  type: 'bus' | 'car' | 'auto';
+  type: 'bus' | 'car';
   brand: string;
   color?: string;
   engineCapacity?: string;
@@ -129,11 +131,6 @@ export interface Vehicle {
   pricingReference: VehiclePricingReference;
   // Actual pricing data - populated automatically from pricingReference
   pricing?: {
-    // Auto pricing (for auto category)
-    autoPrice: {
-      oneWay: number;
-      return: number;
-    };
     // Distance-based pricing (for car and bus categories)
     distancePricing: {
       oneWay: {
@@ -157,11 +154,7 @@ export interface Vehicle {
   };
   // Computed pricing field - will be populated with actual pricing data
   computedPricing?: {
-    // Auto pricing (for auto category)
-    autoPrice: {
-      oneWay: number;
-      return: number;
-    };
+    category: 'car' | 'bus';
     // Distance-based pricing (for car and bus categories)
     distancePricing: {
       oneWay: {
@@ -181,7 +174,6 @@ export interface Vehicle {
         '300km': number;
       };
     };
-    category: string;
     vehicleType: string;
     vehicleModel: string;
   };
@@ -196,7 +188,7 @@ export interface Vehicle {
 
 // Updated interface without removed fields
 export interface CreateVehicleData {
-  type: 'bus' | 'car' | 'auto';
+  type: 'bus' | 'car';
   brand: string;
   color?: string;
   engineCapacity?: string;
@@ -225,7 +217,7 @@ export interface CreateVehicleData {
     state?: string;
   };
   pricingReference?: {
-    category: 'auto' | 'car' | 'bus';
+    category: 'car' | 'bus';
     vehicleType: string;
     vehicleModel: string;
   };
@@ -242,7 +234,7 @@ export interface VehicleFilters {
   page?: number;
   limit?: number;
   status?: 'all' | 'active' | 'inactive' | 'maintenance';
-  type?: 'all' | 'bus' | 'car' | 'auto';
+  type?: 'all' | 'bus' | 'car';
 }
 
 export interface VehicleResponse {
@@ -284,7 +276,8 @@ class VehicleApiService {
       throw new Error(msg);
     }
 
-    return response.json();
+    const data = await response.json();
+    return resolveUploadsUrls(data);
   }
 
   // Create a new vehicle
@@ -334,31 +327,13 @@ class VehicleApiService {
               const returnPricing = returnResponse.data as any;
               
               // Update the vehicle's pricing with the latest data
-              if (oneWayPricing.category === 'auto') {
-                vehicle.pricing = {
-                  autoPrice: {
-                    oneWay: oneWayPricing.autoPrice,
-                    return: returnPricing.autoPrice
-                  },
-                  distancePricing: {
-                    oneWay: { '50km': 0, '100km': 0, '150km': 0, '200km': 0, '250km': 0, '300km': 0 },
-                    return: { '50km': 0, '100km': 0, '150km': 0, '200km': 0, '250km': 0, '300km': 0 }
-                  },
-                  lastUpdated: new Date().toISOString()
-                };
-              } else {
-                vehicle.pricing = {
-                  autoPrice: {
-                    oneWay: 0,
-                    return: 0
-                  },
-                  distancePricing: {
-                    oneWay: oneWayPricing.distancePricing,
-                    return: returnPricing.distancePricing
-                  },
-                  lastUpdated: new Date().toISOString()
-                };
-              }
+              vehicle.pricing = {
+                distancePricing: {
+                  oneWay: oneWayPricing.distancePricing,
+                  return: returnPricing.distancePricing
+                },
+                lastUpdated: new Date().toISOString()
+              };
               
               console.log(`✅ Updated real-time pricing for vehicle ${vehicle._id}:`, vehicle.pricing);
             } else {
@@ -412,7 +387,8 @@ class VehicleApiService {
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    return resolveUploadsUrls(data);
   }
 
   // Remove vehicle image

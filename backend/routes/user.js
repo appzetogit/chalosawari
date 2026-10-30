@@ -5,14 +5,15 @@ const { validate } = require('../middleware/validate');
 const {
   getUserProfile,
   updateUserProfile,
+  uploadAvatar,
   getUserBookings,
-  getUserWallet,
-  addMoneyToWallet,
   getUserPreferences,
   updateUserPreferences,
   deleteUserAccount,
-  requestCancellation
+  requestCancellation,
+  rateBooking
 } = require('../controllers/userController');
+const { uploadAvatarWithErrorHandling } = require('../utils/imageUpload');
 
 const router = express.Router();
 
@@ -47,18 +48,11 @@ const profileUpdateValidation = [
   body('dateOfBirth')
     .optional()
     .isISO8601()
-    .withMessage('Please provide a valid date of birth')
-];
-
-const walletValidation = [
-  body('amount')
-    .isFloat({ min: 1 })
-    .withMessage('Amount must be a positive number'),
-  body('description')
+    .withMessage('Please provide a valid date of birth'),
+  body('profilePicture')
     .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage('Description cannot exceed 200 characters')
+    .isString()
+    .withMessage('Profile picture must be a string URL')
 ];
 
 const preferencesValidation = [
@@ -87,6 +81,7 @@ const preferencesValidation = [
 // Profile routes
 router.get('/profile', getUserProfile);
 router.put('/profile', profileUpdateValidation, validate, updateUserProfile);
+router.post('/avatar', uploadAvatarWithErrorHandling, uploadAvatar);
 
 // Booking routes
 router.get('/bookings', getUserBookings);
@@ -94,10 +89,10 @@ router.get('/bookings/:id', getUserBookings);
 router.put('/bookings/:id/request-cancellation', [
   body('reason').optional().trim().isLength({ max: 500 }).withMessage('Reason cannot exceed 500 characters')
 ], validate, requestCancellation);
-
-// Wallet routes
-router.get('/wallet', getUserWallet);
-router.post('/wallet/add-money', walletValidation, validate, addMoneyToWallet);
+router.put('/bookings/:id/rating', [
+  body('stars').isInt({ min: 1, max: 5 }).withMessage('Rating must be 1 to 5 stars'),
+  body('review').optional().isString().trim().isLength({ max: 500 }).withMessage('Review cannot exceed 500 characters')
+], validate, rateBooking);
 
 // Preferences routes
 router.get('/preferences', getUserPreferences);

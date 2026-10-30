@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 const {
   getActiveOffers,
+  validateCoupon,
   getAllOffers,
   getOfferById,
   createOffer,
@@ -10,7 +11,7 @@ const {
   toggleOfferStatus,
   getOfferStats
 } = require('../controllers/offerController');
-const { protectAdmin } = require('../middleware/auth');
+const { protect, protectAdmin } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { uploadOfferImageWithErrorHandling } = require('../utils/imageUpload');
 
@@ -18,6 +19,13 @@ const router = express.Router();
 
 // Public routes (no authentication required)
 router.get('/', getActiveOffers);
+
+// Check a coupon at checkout (logged-in user)
+router.post('/validate', protect, [
+  body('code').isString().trim().notEmpty().withMessage('Coupon code is required'),
+  body('amount').isFloat({ min: 0 }).withMessage('Amount is required'),
+  body('vehicleType').optional().isIn(['car', 'bus']).withMessage('Invalid vehicle type')
+], validate, validateCoupon);
 
 // Admin routes (authentication required)
 router.use('/admin', protectAdmin);

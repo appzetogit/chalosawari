@@ -1,4 +1,3 @@
-import { toast } from '@/hooks/use-toast';
 
 declare global {
   interface Window {
@@ -147,13 +146,6 @@ class RazorpayService {
         throw new Error('Authentication token not found');
       }
 
-      console.log('Token details:', {
-        tokenLength: token.length,
-        tokenStart: token.substring(0, 20) + '...',
-        tokenEnd: '...' + token.substring(token.length - 20),
-        tokenType: typeof token
-      });
-
       const requestBody = {
         razorpayOrderId: paymentData.razorpayOrderId,
         razorpayPaymentId: paymentData.razorpayPaymentId,
@@ -167,7 +159,6 @@ class RazorpayService {
       console.log('Request body being sent:', requestBody);
       console.log('API URL:', `${this.apiBaseUrl}/payments/verify`);
       console.log('Token available:', !!token);
-      console.log('Authorization header:', `Bearer ${token.substring(0, 20)}...`);
 
       const response = await fetch(`${this.apiBaseUrl}/payments/verify`, {
         method: 'POST',
@@ -321,21 +312,12 @@ class RazorpayService {
             });
             
             const verificationResult = await this.verifyPayment(paymentData);
-            
-            toast({
-              title: "Payment Successful!",
-              description: "Your booking has been confirmed.",
-            });
 
+            // Caller creates the booking and shows the final confirmation
             onSuccess(verificationResult, orderData); // Pass both response and order data
           } catch (error) {
             console.error('Payment verification failed:', error);
-            toast({
-              title: "Payment Verification Failed",
-              description: error instanceof Error ? error.message : "Please contact support",
-              variant: "destructive",
-            });
-            onFailure(error);
+            onFailure(error); // caller shows the error
           }
         },
         onFailure,
@@ -343,70 +325,6 @@ class RazorpayService {
       );
     } catch (error) {
       console.error('Failed to process booking payment:', error);
-      onFailure(error);
-    }
-  }
-
-  /**
-   * Process wallet recharge
-   */
-  async processWalletRecharge(
-    amount: number,
-    userData: { name: string; email: string; phone: string },
-    onSuccess: (response: any, order: any) => void, // Add order parameter
-    onFailure: (error: any) => void,
-    onClose: () => void
-  ): Promise<void> {
-    try {
-      const orderData: RazorpayOrderData = {
-        amount,
-        currency: 'INR',
-        receipt: `wallet_${Date.now()}`,
-        notes: {
-          description: 'Wallet Recharge',
-          type: 'wallet_recharge'
-        }
-      };
-
-      await this.initializePayment(
-        orderData,
-        userData,
-        async (response, order) => { // Add order parameter
-          try {
-            // Verify payment
-            const paymentData: RazorpayPaymentData = {
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
-              // Use the order amount which is already in paise
-              amount: order.amount,
-              paymentMethod: 'razorpay',
-              currency: 'INR'
-            };
-
-            const verificationResult = await this.verifyPayment(paymentData);
-            
-            toast({
-              title: "Recharge Successful!",
-              description: `₹${amount} has been added to your wallet.`,
-            });
-
-            onSuccess(verificationResult, orderData); // Pass both response and order data
-          } catch (error) {
-            console.error('Payment verification failed:', error);
-            toast({
-              title: "Payment Verification Failed",
-              description: error instanceof Error ? error.message : "Please contact support",
-              variant: "destructive",
-            });
-            onFailure(error);
-          }
-        },
-        onFailure,
-        onClose
-      );
-    } catch (error) {
-      console.error('Failed to process wallet recharge:', error);
       onFailure(error);
     }
   }

@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle, FileText, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import apiService from '@/services/api.js';
+import { useDriverAuth } from '@/contexts/DriverAuthContext';
 
 interface DriverAgreementFormProps {
   onAgreementAccepted: () => void;
   driverName?: string;
 }
 
-const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({ 
-  onAgreementAccepted, 
-  driverName = "Driver" 
+const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
+  onAgreementAccepted,
+  driverName = "Driver"
 }) => {
+  const { updateDriverData, refreshDriverData } = useDriverAuth();
   const [agreements, setAgreements] = useState({
     rcValid: false,
     insuranceValid: false,
@@ -36,8 +36,22 @@ const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
       ...prev,
       [key]: checked
     }));
-    
-    // Clear errors when user starts checking boxes
+
+    if (errors.length > 0) {
+      setErrors([]);
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    setAgreements({
+      rcValid: checked,
+      insuranceValid: checked,
+      roadTaxValid: checked,
+      drivingLicenseValid: checked,
+      legalResponsibility: checked,
+      platformLiability: checked,
+      serviceResponsibility: checked
+    });
     if (errors.length > 0) {
       setErrors([]);
     }
@@ -64,7 +78,17 @@ const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
           description: "Welcome to Chalo Sawaari. You can now access your dashboard.",
           variant: "default",
         });
-        
+
+        // Immediately update driver state in context so dashboard unlocks instantly
+        updateDriverData({
+          agreement: {
+            isAccepted: true,
+            acceptedAt: new Date().toISOString()
+          }
+        });
+
+        // Trigger refresh and callback
+        refreshDriverData();
         onAgreementAccepted();
       } else {
         throw new Error(response.error?.message || 'Failed to accept agreement');
@@ -82,7 +106,6 @@ const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
     }
   };
 
-  // Simple function to get client IP (in a real app, you might want to use a more robust solution)
   const getClientIP = async (): Promise<string> => {
     try {
       const response = await fetch('https://api.ipify.org?format=json');
@@ -93,169 +116,106 @@ const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
     }
   };
 
+  const declarationList: { key: keyof typeof agreements; label: string }[] = [
+    { key: 'rcValid', label: "I declare that my vehicle's Registration Certificate (RC) is valid." },
+    { key: 'insuranceValid', label: "My vehicle has a valid and active Insurance Policy." },
+    { key: 'roadTaxValid', label: "All applicable Road Tax, Fitness Certificate, and Permits are valid." },
+    { key: 'drivingLicenseValid', label: "The Driver holds a valid Driving License." },
+    { key: 'legalResponsibility', label: "I accept that any legal, RTO, traffic, accident, penalty, or dispute is my responsibility only (Owner/Driver)." },
+    { key: 'platformLiability', label: 'I agree that "Chalo Sawaari" has no liability or involvement in any such matters.' },
+    { key: 'serviceResponsibility', label: "I take full responsibility for providing the committed service to the customer." },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-4xl shadow-lg border border-gray-200">
-        <CardHeader className="text-center pb-4">
-          <div className="flex justify-center mb-4">
-            <FileText className="w-12 h-12 text-blue-600" />
-          </div>
-          <CardTitle className="text-2xl font-bold text-gray-800">
-            Driver / Owner Agreement Form
-          </CardTitle>
-          <CardDescription className="text-lg">
-            Welcome {driverName}! Please review and accept the terms below to continue.
-          </CardDescription>
-        </CardHeader>
-        
-        <CardContent className="space-y-6">
-          {/* Agreement Content */}
-          <div className="bg-gray-50 p-6 rounded-lg space-y-4">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">
-              Driver / Owner Declaration
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Please tick (✔) the boxes to accept the conditions:
-            </p>
-
-            <div className="space-y-4">
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="rcValid"
-                  checked={agreements.rcValid}
-                  onCheckedChange={(checked) => handleAgreementChange('rcValid', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="rcValid" className="text-sm text-gray-700 cursor-pointer">
-                  I declare that my vehicle's Registration Certificate (RC) is valid.
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="insuranceValid"
-                  checked={agreements.insuranceValid}
-                  onCheckedChange={(checked) => handleAgreementChange('insuranceValid', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="insuranceValid" className="text-sm text-gray-700 cursor-pointer">
-                  My vehicle has a valid and active Insurance Policy.
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="roadTaxValid"
-                  checked={agreements.roadTaxValid}
-                  onCheckedChange={(checked) => handleAgreementChange('roadTaxValid', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="roadTaxValid" className="text-sm text-gray-700 cursor-pointer">
-                  All applicable Road Tax, Fitness Certificate, and Permits are valid.
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="drivingLicenseValid"
-                  checked={agreements.drivingLicenseValid}
-                  onCheckedChange={(checked) => handleAgreementChange('drivingLicenseValid', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="drivingLicenseValid" className="text-sm text-gray-700 cursor-pointer">
-                  The Driver holds a valid Driving License.
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="legalResponsibility"
-                  checked={agreements.legalResponsibility}
-                  onCheckedChange={(checked) => handleAgreementChange('legalResponsibility', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="legalResponsibility" className="text-sm text-gray-700 cursor-pointer">
-                  I accept that any legal, RTO, traffic, accident, penalty, or dispute is my responsibility only (Owner/Driver).
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="platformLiability"
-                  checked={agreements.platformLiability}
-                  onCheckedChange={(checked) => handleAgreementChange('platformLiability', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="platformLiability" className="text-sm text-gray-700 cursor-pointer">
-                  I agree that "Chalo Sawaari" has no liability or involvement in any such matters.
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="serviceResponsibility"
-                  checked={agreements.serviceResponsibility}
-                  onCheckedChange={(checked) => handleAgreementChange('serviceResponsibility', checked as boolean)}
-                  className="mt-1"
-                />
-                <label htmlFor="serviceResponsibility" className="text-sm text-gray-700 cursor-pointer">
-                  I take full responsibility for providing the committed service to the customer.
-                </label>
-              </div>
+    <div className="h-[100dvh] max-h-[100dvh] bg-white flex flex-col justify-between px-4 py-3 sm:py-5 overflow-hidden">
+      <div className="w-full max-w-lg mx-auto flex-1 flex flex-col justify-between">
+        {/* Top Section: Header & Points List */}
+        <div className="space-y-3">
+          {/* Header */}
+          <div className="flex items-center gap-3 pb-2.5 border-b border-gray-100">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-base font-bold text-gray-900 leading-tight truncate">
+                Driver Agreement Form
+              </h1>
+              <p className="text-[11px] text-gray-500 leading-tight truncate mt-0.5">
+                Welcome <span className="font-semibold text-gray-800">{driverName}</span> • Review & accept terms
+              </p>
             </div>
           </div>
 
-          {/* Final Confirmation */}
-          <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
-            <h4 className="font-semibold text-red-800 mb-2">Final Confirmation</h4>
-            <p className="text-sm text-red-700 mb-2">
-              The entire responsibility for the vehicle, driver, permits, insurance, and compliance lies with the Owner/Driver.
-            </p>
-            <p className="text-sm text-red-700">
-              Chalo Sawaari (the platform) has no responsibility, liability, or involvement in any disputes, accidents, penalties, or legal matters.
+          {/* Declaration Points List */}
+          <div className="space-y-2">
+            {declarationList.map((item) => (
+              <div
+                key={item.key}
+                onClick={() => handleAgreementChange(item.key, !agreements[item.key])}
+                className={`flex items-start gap-2.5 p-2 rounded-lg border transition-all cursor-pointer ${
+                  agreements[item.key]
+                    ? "bg-blue-50/40 border-blue-100 text-gray-900"
+                    : "bg-white border-gray-100 text-gray-600 hover:bg-gray-50/70"
+                }`}
+              >
+                <Checkbox
+                  id={item.key}
+                  checked={agreements[item.key]}
+                  onCheckedChange={(checked) => handleAgreementChange(item.key, checked as boolean)}
+                  className="mt-0.5 shrink-0 h-4 w-4"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <label
+                  htmlFor={item.key}
+                  className="text-[11px] sm:text-xs leading-snug cursor-pointer select-none"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {item.label}
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom Section: Notes & Actions */}
+        <div className="space-y-2 pt-2 shrink-0">
+          <div className="bg-amber-50/70 border border-amber-200/60 p-2 rounded-lg flex items-start gap-2">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-[10px] text-amber-800 leading-tight">
+              <span className="font-semibold">Important:</span> Vehicle permits, insurance, and road compliance are the sole responsibility of the Owner/Driver. Chalo Sawaari is a platform provider.
             </p>
           </div>
 
-          {/* Error Messages */}
           {errors.length > 0 && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                {errors.map((error, index) => (
-                  <div key={index}>{error}</div>
-                ))}
-              </AlertDescription>
-            </Alert>
+            <div className="p-1.5 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-600 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>{errors[0]}</span>
+            </div>
           )}
 
-          {/* Submit Button */}
-          <div className="flex justify-center">
-            <Button
-              onClick={handleSubmit}
-              disabled={!allAgreementsAccepted || isSubmitting}
-              className="w-full max-w-md bg-blue-600 text-white hover:bg-blue-700 h-12 rounded-lg"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Submitting Agreement...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Accept & Continue
-                </>
-              )}
-            </Button>
-          </div>
+          <Button
+            onClick={handleSubmit}
+            disabled={!allAgreementsAccepted || isSubmitting}
+            className="w-full bg-blue-600 text-white hover:bg-blue-700 h-10 sm:h-11 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-all disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting Agreement...
+              </>
+            ) : (
+              <>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Accept & Continue ({Object.values(agreements).filter(Boolean).length}/7)
+              </>
+            )}
+          </Button>
 
-          {/* Footer Note */}
-          <div className="text-center text-xs text-gray-500">
-            <p>By accepting this agreement, you acknowledge that you have read, understood, and agree to be bound by these terms.</p>
-            <p className="mt-1">This agreement is legally binding and will be stored in our records.</p>
-          </div>
-        </CardContent>
-      </Card>
+          <p className="text-[10px] text-gray-400 text-center leading-tight">
+            By accepting, you agree to Chalo Sawaari Driver Partner Terms & Conditions.
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

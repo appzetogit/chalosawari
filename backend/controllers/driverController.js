@@ -28,26 +28,65 @@ const updateDriverProfile = asyncHandler(async (req, res) => {
     email,
     dateOfBirth,
     address,
-    emergencyContact
+    emergencyContact,
+    bankDetails
   } = req.body;
+
+  // Phone is the OTP login identity; changing it here would skip OTP verification
+  if (phone && String(phone).replace(/[^0-9]/g, '').slice(-10) !== req.driver.phone) {
+    return res.status(400).json({
+      success: false,
+      message: 'Phone number cannot be changed. Please contact support.'
+    });
+  }
+
+  const updateFields = {};
+  if (firstName !== undefined) updateFields.firstName = firstName;
+  if (lastName !== undefined) updateFields.lastName = lastName;
+  if (email !== undefined) updateFields.email = email;
+  if (dateOfBirth !== undefined) updateFields.dateOfBirth = dateOfBirth;
+  if (address !== undefined) updateFields.address = address;
+  if (emergencyContact !== undefined) updateFields.emergencyContact = emergencyContact;
+  if (bankDetails !== undefined) updateFields.bankDetails = bankDetails;
 
   const driver = await Driver.findByIdAndUpdate(
     req.driver.id,
-    {
-      firstName,
-      lastName,
-      phone,
-      email,
-      dateOfBirth,
-      address,
-      emergencyContact
-    },
+    updateFields,
     { new: true, runValidators: true }
   ).select('-password');
 
   res.json({
     success: true,
     data: driver
+  });
+});
+
+// @desc    Upload driver profile picture / avatar
+// @route   POST /api/driver/avatar
+// @access  Private (Driver)
+const uploadAvatar = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please select an image file to upload'
+    });
+  }
+
+  const relativeUrl = req.file.path || `/uploads/avatars/${req.file.filename}`;
+
+  const driver = await Driver.findByIdAndUpdate(
+    req.driver.id,
+    { profilePicture: relativeUrl },
+    { new: true, runValidators: true }
+  ).select('-password');
+
+  res.status(200).json({
+    success: true,
+    message: 'Profile photo uploaded successfully',
+    data: {
+      profilePicture: relativeUrl,
+      driver
+    }
   });
 });
 
@@ -203,6 +242,25 @@ const getEarnings = asyncHandler(async (req, res) => {
 // @desc    Get driver today's earnings
 // @route   GET /api/driver/earnings/today
 // @access  Private (Driver)
+// @desc    Total cash collected by the driver
+// @route   GET /api/driver/earnings/cash-collected
+// @access  Private (Driver)
+const getCashCollected = asyncHandler(async (req, res) => {
+  // Cash the driver collected from passengers (remaining amount of advance bookings), all time
+  const bookings = await Booking.find({
+    driver: req.driver.id,
+    'payment.isPartialPayment': true,
+    'payment.partialPaymentDetails.cashPaymentStatus': 'collected'
+  }).select('payment.partialPaymentDetails.cashAmount');
+
+  const totalCashCollected = bookings.reduce((sum, b) => sum + (b.payment?.partialPaymentDetails?.cashAmount || 0), 0);
+
+  res.json({
+    success: true,
+    data: { totalCashCollected, bookings: bookings.length }
+  });
+});
+
 const getTodayEarnings = asyncHandler(async (req, res) => {
   console.log('=== DRIVER TODAY EARNINGS API CALLED ===');
   console.log('Driver ID:', req.driver.id);
@@ -382,6 +440,26 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
       success: false,
       message: `Cannot change status from ${booking.status} to ${status}`
     });
+  }
+
+  // Advance bookings: the remaining cash must be collected to complete the trip.
+  // Driver confirms it with cashCollected=true, saved together with the completion.
+  const partial = booking.payment?.isPartialPayment ? booking.payment.partialPaymentDetails : null;
+  if (status === 'completed' && partial && partial.cashPaymentStatus !== 'collected') {
+    if (req.body.cashCollected !== true) {
+      return res.status(400).json({
+        success: false,
+        message: `Collect ₹${partial.cashAmount} cash from the passenger before completing the trip`
+      });
+    }
+    partial.cashPaymentStatus = 'collected';
+    partial.cashCollectedAt = new Date();
+    partial.cashCollectedBy = req.driver.id;
+    partial.cashCollectedByModel = 'Driver';
+    if (partial.onlinePaymentStatus === 'completed') {
+      booking.payment.status = 'completed';
+      booking.payment.completedAt = new Date();
+    }
   }
 
   // Set tracking information for the pre-save middleware
@@ -775,34 +853,28 @@ const createVehicle = asyncHandler(async (req, res) => {
     });
   }
 
-  // Validate vehicle location
-  if (!vehicleLocation || !vehicleLocation.latitude || !vehicleLocation.longitude || !vehicleLocation.address) {
-    return res.status(400).json({
-      success: false,
-      message: 'Vehicle location is required (latitude, longitude, and address)'
-    });
-  }
+  // Validate vehicle location (if provided)
+  if (vehicleLocation && (vehicleLocation.latitude || vehicleLocation.longitude || vehicleLocation.address)) {
+    if (isNaN(vehicleLocation.latitude) || isNaN(vehicleLocation.longitude)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid coordinates provided. Latitude and longitude must be valid numbers.'
+      });
+    }
 
-  // Validate coordinates
-  if (isNaN(vehicleLocation.latitude) || isNaN(vehicleLocation.longitude)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid coordinates provided. Latitude and longitude must be valid numbers.'
-    });
-  }
+    if (vehicleLocation.latitude < -90 || vehicleLocation.latitude > 90) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude must be between -90 and 90 degrees.'
+      });
+    }
 
-  if (vehicleLocation.latitude < -90 || vehicleLocation.latitude > 90) {
-    return res.status(400).json({
-      success: false,
-      message: 'Latitude must be between -90 and 90 degrees.'
-    });
-  }
-
-  if (vehicleLocation.longitude < -180 || vehicleLocation.longitude > 180) {
-    return res.status(400).json({
-      success: false,
-      message: 'Longitude must be between -180 and 180 degrees.'
-    });
+    if (vehicleLocation.longitude < -180 || vehicleLocation.longitude > 180) {
+      return res.status(400).json({
+        success: false,
+        message: 'Longitude must be between -180 and 180 degrees.'
+      });
+    }
   }
 
   // Verify that the pricing exists in VehiclePricing model for both trip types
@@ -875,19 +947,26 @@ const createVehicle = asyncHandler(async (req, res) => {
     transmission,
     seatingCapacity: parseInt(seatingCapacity),
     engineCapacity: engineCapacity ? parseInt(engineCapacity) : undefined,
-    mileage: mileage ? parseInt(mileage) : undefined,
+    mileage: mileage ? parseFloat(mileage) : undefined,
     isAc,
     isSleeper,
     amenities,
     registrationNumber: registrationNumber.toUpperCase(),
     chassisNumber: chassisNumber ? chassisNumber.toUpperCase() : undefined,
     engineNumber: engineNumber ? engineNumber.toUpperCase() : undefined,
-    vehicleLocation: {
+    vehicleLocation: vehicleLocation && vehicleLocation.address ? {
       type: 'Point',
-      coordinates: [vehicleLocation.longitude, vehicleLocation.latitude], // MongoDB format: [lng, lat]
-      address: vehicleLocation.address,
+      coordinates: [vehicleLocation.longitude || 0, vehicleLocation.latitude || 0],
+      address: vehicleLocation.address || '',
       city: vehicleLocation.city || '',
       state: vehicleLocation.state || '',
+      lastUpdated: new Date()
+    } : {
+      type: 'Point',
+      coordinates: [0, 0],
+      address: '',
+      city: '',
+      state: '',
       lastUpdated: new Date()
     },
     pricingReference,
@@ -901,11 +980,11 @@ const createVehicle = asyncHandler(async (req, res) => {
     workingHoursEnd,
     operatingCities,
     operatingStates,
-    // Auto-approve vehicles for testing
-    approvalStatus: 'approved',
-    isApproved: true,
-    approvedAt: new Date(),
-    adminNotes: 'Auto-approved for testing'
+    approvalStatus: 'pending',
+    isApproved: false,
+    isVerified: false,
+    isAvailable: false,
+    adminNotes: ''
   };
 
   // Add documents if provided
@@ -1097,7 +1176,7 @@ const updateVehicleById = asyncHandler(async (req, res) => {
   // Update vehicle fields
   const updatedVehicle = await Vehicle.findByIdAndUpdate(
     req.params.id,
-    req.body,
+    Vehicle.stripProtectedFields(req.body),
     {
       new: true,
       runValidators: true
@@ -1172,24 +1251,6 @@ const deleteVehicle = asyncHandler(async (req, res) => {
 const getDocuments = asyncHandler(async (req, res) => {
   const driver = await Driver.findById(req.driver.id).select('documents');
   
-  res.json({
-    success: true,
-    data: driver.documents
-  });
-});
-
-// @desc    Update driver documents
-// @route   PUT /api/driver/documents
-// @access  Private (Driver)
-const updateDocuments = asyncHandler(async (req, res) => {
-  const { documents } = req.body;
-
-  const driver = await Driver.findByIdAndUpdate(
-    req.driver.id,
-    { documents },
-    { new: true, runValidators: true }
-  ).select('documents');
-
   res.json({
     success: true,
     data: driver.documents
@@ -1387,11 +1448,11 @@ const uploadDocument = asyncHandler(async (req, res) => {
   const driverId = req.driver.id;
 
   // Validate documentType
-  if (!documentType || !['vehicleRC', 'insurance'].includes(documentType)) {
+  if (!documentType || !['vehicleRC', 'insurance', 'drivingLicense', 'license'].includes(documentType)) {
     console.log('Invalid document type:', documentType);
     return res.status(400).json({
       success: false,
-      message: 'Document type must be vehicleRC or insurance'
+      message: 'Document type must be vehicleRC, insurance, or drivingLicense'
     });
   }
 
@@ -1416,20 +1477,14 @@ const uploadDocument = asyncHandler(async (req, res) => {
     driver.documents = {};
   }
 
+  const docKey = documentType === 'license' ? 'drivingLicense' : documentType;
+
   // Update the specific document
-  if (documentType === 'vehicleRC') {
-    if (!driver.documents.vehicleRC) {
-      driver.documents.vehicleRC = {};
-    }
-    driver.documents.vehicleRC.image = req.file.path;
-    driver.documents.vehicleRC.isVerified = false; // New uploads need verification
-  } else if (documentType === 'insurance') {
-    if (!driver.documents.insurance) {
-      driver.documents.insurance = {};
-    }
-    driver.documents.insurance.image = req.file.path;
-    driver.documents.insurance.isVerified = false; // New uploads need verification
+  if (!driver.documents[docKey]) {
+    driver.documents[docKey] = {};
   }
+  driver.documents[docKey].image = req.file.path;
+  driver.documents[docKey].isVerified = false; // New uploads need verification
 
   await driver.save();
 
@@ -1451,6 +1506,7 @@ module.exports = {
   toggleStatus,
   getEarnings,
   getTodayEarnings,
+  getCashCollected,
   getDriverBookings,
   updateBookingStatus,
   getDriverVehicle,
@@ -1460,7 +1516,6 @@ module.exports = {
   updateVehicleById,
   deleteVehicle,
   getDocuments,
-  updateDocuments,
   getDriverStats,
   requestWithdrawal,
   completeTrip,
@@ -1468,5 +1523,6 @@ module.exports = {
   getActiveTrips,
   getTripHistory,
   acceptDriverAgreement,
-  uploadDocument
+  uploadDocument,
+  uploadAvatar
 };

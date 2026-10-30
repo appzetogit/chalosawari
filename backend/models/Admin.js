@@ -96,7 +96,7 @@ AdminSchema.pre('save', async function(next) {
 
 // Sign JWT and return
 AdminSchema.methods.getSignedJwtToken = function() {
-  return jwt.sign({ id: this._id }, process.env.JWT_SECRET || 'fallback_jwt_secret', {
+  return jwt.sign({ id: this._id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '7d'
   });
 };

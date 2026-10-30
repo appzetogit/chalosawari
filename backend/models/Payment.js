@@ -62,8 +62,7 @@ const paymentSchema = new mongoose.Schema({
     required: false
   },
   transactionId: {
-    type: String,
-    sparse: true
+    type: String
   },
   paymentGateway: {
     type: String,

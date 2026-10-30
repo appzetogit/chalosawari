@@ -198,12 +198,14 @@ const AdminDashboard = () => {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    const num = Number(amount) || 0;
+    if (Number.isInteger(num)) {
+      return `₹${num.toLocaleString('en-IN')}`;
+    }
+    return `₹${Number(num.toFixed(2)).toLocaleString('en-IN', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 2
+    })}`;
   };
 
   const getGrowthPercentage = (current: number, total: number) => {
@@ -231,123 +233,112 @@ const AdminDashboard = () => {
 
   return (
     <AdminLayout>
-      {/* Enhanced Header with better styling */}
-      <div className="mb-8 md:mb-12 animate-slide-in-from-top">
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 md:p-8 text-white shadow-xl">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold mb-3 animate-fade-in-up">
-                Admin Dashboard
-              </h1>
-              <p className="text-blue-100 text-lg animate-fade-in-up animation-delay-200">
-                Welcome back! Here's what's happening with your business today.
-              </p>
-              <div className="mt-4 flex items-center space-x-2">
-                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-blue-100 text-sm">System Status: Online</span>
-              </div>
-            </div>
-            <div className="mt-4 md:mt-0 flex flex-col sm:flex-row gap-3">
-              <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-white/20 text-white border-white/30 hover:bg-white/30 focus:bg-white/30 focus:ring-2 focus:ring-white/50 transition-all duration-200 min-w-[140px] justify-between"
-                  >
-                    <div className="flex items-center">
-                      <Calendar className="w-4 h-4 mr-2" />
-                      <span className="font-medium">
-                        {selectedPeriod === 'week' && 'This Week'}
-                        {selectedPeriod === 'month' && 'This Month'}
-                        {selectedPeriod === 'year' && 'This Year'}
-                      </span>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 ml-2 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-white border-0 shadow-xl rounded-xl p-2">
-                  <DropdownMenuItem 
-                    onClick={() => setSelectedPeriod('week')}
-                    className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                      selectedPeriod === 'week' 
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                        : 'hover:bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    <CalendarDays className={`w-4 h-4 mr-3 ${
-                      selectedPeriod === 'week' ? 'text-blue-600' : 'text-gray-500'
-                    }`} />
-                    <div className="flex flex-col">
-                      <span className="font-medium">This Week</span>
-                      <span className="text-xs text-gray-500">Last 7 days</span>
-                    </div>
-                    {selectedPeriod === 'week' && (
-                      <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
-                    )}
-                  </DropdownMenuItem>
-                  
-                  <DropdownMenuItem 
-                    onClick={() => setSelectedPeriod('month')}
-                    className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                      selectedPeriod === 'month' 
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                        : 'hover:bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    <CalendarRange className={`w-4 h-4 mr-3 ${
-                      selectedPeriod === 'month' ? 'text-blue-600' : 'text-gray-500'
-                    }`} />
-                    <div className="flex flex-col">
-                      <span className="font-medium">This Month</span>
-                      <span className="text-xs text-gray-500">Current month</span>
-                    </div>
-                    {selectedPeriod === 'month' && (
-                      <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
-                    )}
-                  </DropdownMenuItem>
-                  
-                  <DropdownMenuItem 
-                    onClick={() => setSelectedPeriod('year')}
-                    className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                      selectedPeriod === 'year' 
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                        : 'hover:bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    <Calendar className={`w-4 h-4 mr-3 ${
-                      selectedPeriod === 'year' ? 'text-blue-600' : 'text-gray-500'
-                    }`} />
-                    <div className="flex flex-col">
-                      <span className="font-medium">This Year</span>
-                      <span className="text-xs text-gray-500">Current year</span>
-                    </div>
-                    {selectedPeriod === 'year' && (
-                      <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
-                    )}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              
-              {/* Visual Separator */}
-              <div className="hidden sm:block w-px bg-white/20 mx-2" />
-              
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 lg:mb-8 gap-4">
+        <div>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-1">
+            Admin Dashboard
+          </h1>
+          <p className="text-gray-600 text-sm lg:text-base">
+            Welcome back! Here's what's happening with your business today.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
+            <DropdownMenuTrigger asChild>
               <Button
-                onClick={handleRefresh}
-                disabled={isLoadingStats}
                 variant="outline"
                 size="sm"
-                className="bg-white/20 text-white border-white/30 hover:bg-white/30 focus:bg-white/30 focus:ring-2 focus:ring-white/50 transition-all duration-200"
+                className="border-gray-200 text-gray-700 hover:bg-gray-50 min-w-[130px] justify-between"
               >
-                {isLoadingStats ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                )}
-                Refresh
+                <div className="flex items-center">
+                  <Calendar className="w-4 h-4 mr-2 text-gray-500" />
+                  <span className="font-medium">
+                    {selectedPeriod === 'week' && 'This Week'}
+                    {selectedPeriod === 'month' && 'This Month'}
+                    {selectedPeriod === 'year' && 'This Year'}
+                  </span>
+                </div>
+                <ChevronDown className={`w-4 h-4 ml-2 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </Button>
-            </div>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 bg-white border border-gray-100 shadow-xl rounded-xl p-2 z-50">
+              <DropdownMenuItem 
+                onClick={() => setSelectedPeriod('week')}
+                className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 ${
+                  selectedPeriod === 'week' 
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                    : 'hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <CalendarDays className={`w-4 h-4 mr-3 ${
+                  selectedPeriod === 'week' ? 'text-blue-600' : 'text-gray-500'
+                }`} />
+                <div className="flex flex-col">
+                  <span className="font-medium">This Week</span>
+                  <span className="text-xs text-gray-500">Last 7 days</span>
+                </div>
+                {selectedPeriod === 'week' && (
+                  <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
+                )}
+              </DropdownMenuItem>
+              
+              <DropdownMenuItem 
+                onClick={() => setSelectedPeriod('month')}
+                className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 ${
+                  selectedPeriod === 'month' 
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                    : 'hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <CalendarRange className={`w-4 h-4 mr-3 ${
+                  selectedPeriod === 'month' ? 'text-blue-600' : 'text-gray-500'
+                }`} />
+                <div className="flex flex-col">
+                  <span className="font-medium">This Month</span>
+                  <span className="text-xs text-gray-500">Current month</span>
+                </div>
+                {selectedPeriod === 'month' && (
+                  <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
+                )}
+              </DropdownMenuItem>
+              
+              <DropdownMenuItem 
+                onClick={() => setSelectedPeriod('year')}
+                className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 ${
+                  selectedPeriod === 'year' 
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                    : 'hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <Calendar className={`w-4 h-4 mr-3 ${
+                  selectedPeriod === 'year' ? 'text-blue-600' : 'text-gray-500'
+                }`} />
+                <div className="flex flex-col">
+                  <span className="font-medium">This Year</span>
+                  <span className="text-xs text-gray-500">Current year</span>
+                </div>
+                {selectedPeriod === 'year' && (
+                  <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
+                )}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <Button
+            onClick={handleRefresh}
+            disabled={isLoadingStats}
+            variant="outline"
+            size="sm"
+            className="border-gray-200 text-gray-700 hover:bg-gray-50"
+          >
+            {isLoadingStats ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Refresh
+          </Button>
         </div>
       </div>
 

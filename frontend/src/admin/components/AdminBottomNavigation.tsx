@@ -8,7 +8,8 @@ import {
   FileText,
   LogOut,
   Settings,
-  ChevronDown
+  ChevronDown,
+  Bus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -37,9 +38,9 @@ const AdminBottomNavigation = () => {
       icon: Calendar,
     },
     {
-      title: "Price",
-      href: "/admin/prices",
-      icon: CreditCard,
+      title: "Vehicles",
+      href: "/admin/vehicles",
+      icon: Bus,
     },
     {
       title: "Profile",
@@ -83,12 +84,8 @@ const AdminBottomNavigation = () => {
   };
 
   return (
-    <>
-      {/* White background to fill the gap below navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 h-4 bg-white z-40"></div>
-      
-      <div className="md:hidden fixed bottom-4 left-0 right-0 bg-white border-t border-gray-200 z-50 shadow-lg rounded-t-lg">
-        <div className="flex justify-around">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+      <div className="max-w-md mx-auto flex justify-around">
         {navigationItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
@@ -98,7 +95,7 @@ const AdminBottomNavigation = () => {
               key={item.href}
               to={item.href}
               className={cn(
-                "flex flex-col items-center justify-center py-3 px-3 min-w-0 flex-1",
+                "flex flex-col items-center justify-center py-2 px-3 min-w-0 flex-1",
                 "transition-colors duration-200",
                 active
                   ? "text-blue-600 bg-blue-50"
@@ -118,9 +115,8 @@ const AdminBottomNavigation = () => {
             </Link>
           );
         })}
-        </div>
       </div>
-    </>
+    </div>
   );
 };
 

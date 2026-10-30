@@ -121,7 +121,7 @@ export interface DriverEarnings {
 
 export interface DriverVehicle {
   _id: string;
-  type: 'bus' | 'car' | 'auto';
+  type: 'bus' | 'car';
   brand: string;
   fuelType: string;
   seatingCapacity: number;
@@ -195,6 +195,17 @@ class DriverApiService {
   async getEarnings(period: 'week' | 'month' | 'year' = 'month'): Promise<DriverEarnings> {
     const response = await apiService.getDriverEarnings(period);
     return response.data;
+  }
+
+  // Total cash the driver collected from passengers (all time)
+  async getCashCollected(): Promise<number> {
+    try {
+      const response = await apiService.request('/driver/earnings/cash-collected', {}, 'driver');
+      return response.data.totalCashCollected || 0;
+    } catch (error) {
+      console.error('Error fetching cash collected:', error);
+      return 0;
+    }
   }
 
   async getTodayEarnings(): Promise<number> {
@@ -326,10 +337,18 @@ class DriverApiService {
     }
   }
 
-  // Rating and Reviews - Using mock data as requested
+  // Rating and Reviews - Real average rating from backend stats
   async getAverageRating(): Promise<number> {
-    // Return a random rating between 4.0 and 5.0 for better user experience
-    return Math.round((Math.random() * 1 + 4) * 10) / 10;
+    try {
+      const stats = await this.getStats();
+      if (stats && typeof stats.averageRating !== 'undefined') {
+        return Number(stats.averageRating) || 0;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Error fetching average rating:', error);
+      return 0;
+    }
   }
 
   async getHappyCustomersCount(): Promise<number> {
@@ -363,7 +382,8 @@ class DriverApiService {
         activeRequests,
         totalVehicles,
         completedRides,
-        totalEarnings
+        totalEarnings,
+        cashCollected
       ] = await Promise.all([
         this.getTotalVehicleCount(), // Use total vehicle count instead of filtered
         this.getTodayEarnings(),
@@ -372,7 +392,8 @@ class DriverApiService {
         this.getPendingBookings().then(bookings => bookings.length),
         this.getVehicles().then(vehicles => vehicles.length),
         this.getCompletedBookingsCount(),
-        this.getEarnings().then(earnings => earnings.totalEarnings)
+        this.getEarnings().then(earnings => earnings.totalEarnings),
+        this.getCashCollected()
       ]);
 
       return {
@@ -383,7 +404,8 @@ class DriverApiService {
         activeRequests,
         totalVehicles,
         completedRides,
-        totalEarnings
+        totalEarnings,
+        cashCollected
       };
     } catch (error) {
       console.error('Error fetching dashboard summary:', error);

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { resolveUploadsUrls } from '../utils/imageUrl';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL) ||
   (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
@@ -27,9 +28,12 @@ adminApi.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors and resolve relative upload URLs
 adminApi.interceptors.response.use(
   (response) => {
+    if (response.data) {
+      response.data = resolveUploadsUrls(response.data);
+    }
     console.log('Admin API Response:', {
       url: response.config.url,
       status: response.status,
@@ -56,11 +60,6 @@ adminApi.interceptors.response.use(
 export const adminAuth = {
   login: async (phone: string, password: string) => {
     const response = await adminApi.post('/login', { phone, password });
-    return response.data;
-  },
-  
-  signup: async (firstName: string, lastName: string, phone: string, password: string, confirmPassword: string) => {
-    const response = await adminApi.post('/signup', { firstName, lastName, phone, password, confirmPassword });
     return response.data;
   },
   
@@ -198,6 +197,11 @@ export const adminDrivers = {
     return response.data;
   },
   
+  update: async (id: string, driverData: any) => {
+    const response = await adminApi.put(`/drivers/${id}`, driverData);
+    return response.data;
+  },
+  
   updateStatus: async (id: string, status: string, reason?: string) => {
     const response = await adminApi.put(`/drivers/${id}/status`, { status, reason });
     return response.data;
@@ -312,6 +316,11 @@ export const adminBookings = {
     return response.data;
   },
 
+  cancel: async (id: string, reason?: string) => {
+    const response = await adminApi.put(`/bookings/${id}/cancel`, { reason });
+    return response.data;
+  },
+
   processRefund: async (id: string, refundMethod: 'razorpay' | 'manual', refundReason?: string, adminNotes?: string) => {
     const response = await adminApi.post(`/bookings/${id}/refund`, { 
       refundMethod, 
@@ -380,6 +389,51 @@ export const adminDriverDocuments = {
 
   deleteInsurance: async (driverId: string) => {
     const response = await adminApi.delete(`/drivers/${driverId}/documents/insurance`);
+    return response.data;
+  }
+};
+
+// Admin Vehicle Earnings & Profit Check
+export const adminEarnings = {
+  getVehicleEarnings: async (params?: {
+    search?: string;
+    type?: string;
+    startDate?: string;
+    endDate?: string;
+    sortBy?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await adminApi.get('/earnings/vehicles', { params });
+    return response.data;
+  },
+
+  getVehicleBookingEarnings: async (
+    vehicleId: string,
+    params?: {
+      startDate?: string;
+      endDate?: string;
+      status?: string;
+    }
+  ) => {
+    const response = await adminApi.get(`/earnings/vehicles/${vehicleId}`, { params });
+    return response.data;
+  }
+};
+
+// Admin Ratings & Reviews
+export const adminReviews = {
+  getAllReviews: async (params?: {
+    search?: string;
+    stars?: number | string;
+    hasReviewText?: string;
+    startDate?: string;
+    endDate?: string;
+    sortBy?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await adminApi.get('/reviews', { params });
     return response.data;
   }
 };

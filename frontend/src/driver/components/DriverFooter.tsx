@@ -76,13 +76,13 @@ const DriverFooter = () => {
                         </Button>
                       </Link>
                     ) : link === "Terms & Conditions" ? (
-                      <Link to="/terms-conditions">
+                      <Link to="/driver/terms-conditions">
                         <Button variant="link" className="text-white/80 hover:text-white p-0 h-auto font-normal text-sm">
                           {link}
                         </Button>
                       </Link>
                     ) : link === "Privacy Policy" ? (
-                      <Link to="/privacy-policy">
+                      <Link to="/driver/privacy-policy">
                         <Button variant="link" className="text-white/80 hover:text-white p-0 h-auto font-normal text-sm">
                           {link}
                         </Button>
@@ -182,12 +182,12 @@ const DriverFooter = () => {
           <div className="flex flex-col md:flex-row justify-between items-center text-white/60 text-sm">
             <p>&copy; 2025 Chalo Sawari Owner Driver Portal. All rights reserved.</p>
             <div className="flex space-x-6 mt-4 md:mt-0">
-              <Link to="/terms-conditions">
+              <Link to="/driver/terms-conditions">
                 <Button variant="link" className="text-white/60 hover:text-white p-0 h-auto font-normal text-sm">
                   Driver Terms
                 </Button>
               </Link>
-              <Link to="/privacy-policy">
+              <Link to="/driver/privacy-policy">
                 <Button variant="link" className="text-white/60 hover:text-white p-0 h-auto font-normal text-sm">
                   Privacy Policy
                 </Button>

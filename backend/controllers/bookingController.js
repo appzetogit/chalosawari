@@ -1,7 +1,13 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
+const Payment = require('../models/Payment');
+const RazorpayService = require('../services/razorpayService');
 const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
+const VehicleSetting = require('../models/VehicleSetting');
+const Offer = require('../models/Offer');
 const asyncHandler = require('../middleware/asyncHandler');
+const { getRoadDistanceKm } = require('../utils/roadDistance');
 const puppeteer = require('puppeteer');
 
 // Helper function to calculate distance between two points using Haversine formula
@@ -27,7 +33,77 @@ const calculateDistance = (point1, point2) => {
 // @desc    Create a new booking
 // @route   POST /api/bookings
 // @access  Private (User)
+// Pay-first checkout: the client pays on Razorpay (/payments/verify records it), then calls this with paymentId.
+// The payment is claimed atomically for this booking; if the booking can't be created it is refunded.
 const createBooking = asyncHandler(async (req, res) => {
+  const bookingId = new mongoose.Types.ObjectId();
+  const payment = await Payment.findOneAndUpdate(
+    {
+      _id: req.body.paymentId,
+      user: req.user.id,
+      status: 'completed',
+      paymentGateway: 'razorpay',
+      booking: null // matches unset or null, i.e. not used for a booking yet
+    },
+    { $set: { booking: bookingId } },
+    { new: true }
+  );
+  if (!payment) {
+    return res.status(409).json({
+      success: false,
+      message: 'Payment not found, not yours, or already used for another booking'
+    });
+  }
+
+  let result;
+  try {
+    result = await buildPaidBooking(req, payment, bookingId);
+  } catch (error) {
+    console.error('Booking creation failed after payment:', error);
+    result = { error: { status: 500, message: 'Could not create booking' } };
+  }
+
+  if (result.error) {
+    payment.booking = undefined;
+    const refunded = await refundPayment(payment, `Booking failed: ${result.error.message}`);
+    return res.status(result.error.status).json({
+      success: false,
+      message: refunded
+        ? `${result.error.message}. Your payment of ₹${payment.amount} has been refunded.`
+        : `${result.error.message}. Your payment of ₹${payment.amount} will be refunded by support.`,
+      refunded
+    });
+  }
+
+  const { booking } = result;
+  res.status(201).json({
+    success: true,
+    message: 'Booking created successfully',
+    data: {
+      bookingId: booking._id,
+      bookingNumber: booking.bookingNumber,
+      totalAmount: booking.pricing.totalAmount,
+      paidAmount: payment.amount,
+      status: booking.status
+    }
+  });
+});
+
+// Refund a Razorpay payment in full; returns true if Razorpay accepted the refund
+const refundPayment = async (payment, reason) => {
+  try {
+    const refund = await RazorpayService.processRefund(payment.transactionId, payment.amount, reason);
+    await payment.processRefund(payment.amount, reason, refund.refundId);
+    return true;
+  } catch (error) {
+    console.error(`Auto-refund failed for payment ${payment._id}:`, error.message);
+    await payment.save().catch(() => {});
+    return false;
+  }
+};
+
+// Validates the trip, prices it and saves the booking as paid. Returns { booking } or { error: { status, message } }.
+const buildPaidBooking = async (req, payment, bookingId) => {
   const {
     vehicleId,
     pickup,
@@ -41,10 +117,7 @@ const createBooking = asyncHandler(async (req, res) => {
 
   // Validate required fields
   if (!vehicleId || !pickup || !destination || !date || !time || !paymentMethod) {
-    return res.status(400).json({
-      success: false,
-      message: 'Missing required fields: vehicleId, pickup, destination, date, time, paymentMethod'
-    });
+    return { error: { status: 400, message: 'Missing required fields: vehicleId, pickup, destination, date, time, paymentMethod' } };
   }
 
   // Normalize date to YYYY-MM-DD format
@@ -52,69 +125,64 @@ const createBooking = asyncHandler(async (req, res) => {
 
   // Validate time format (HH:MM or HH:MM:SS)
   if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/.test(time)) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Invalid time format. Please use HH:MM format (e.g., 09:00)',
-        statusCode: 400
-      }
-    });
+    return { error: { status: 400, message: 'Invalid time format. Please use HH:MM format (e.g., 09:00)' } };
   }
 
   // Validate vehicle exists and get driver info
   const vehicle = await Vehicle.findById(vehicleId).populate('driver');
   if (!vehicle) {
-    return res.status(404).json({
-      success: false,
-      message: 'Vehicle not found'
-    });
+    return { error: { status: 404, message: 'Vehicle not found' } };
   }
 
   if (!vehicle.driver) {
-    return res.status(400).json({
-      success: false,
-      message: 'Vehicle has no assigned driver'
-    });
+    return { error: { status: 400, message: 'Vehicle has no assigned driver' } };
+  }
+
+  // Someone else may have booked this vehicle for the same day while this user was paying
+  // ponytail: check-then-insert, a near-simultaneous pair can still both pass; a unique index on (vehicle, date) for active bookings would close it
+  const alreadyBooked = await Booking.exists({
+    vehicle: vehicleId,
+    'tripDetails.date': normalizedDate,
+    status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] }
+  });
+  if (alreadyBooked) {
+    return { error: { status: 409, message: 'This vehicle was just booked by someone else for this date' } };
   }
 
   // Validate coordinates are valid numbers
   if (isNaN(pickup.latitude) || isNaN(pickup.longitude) || 
       isNaN(destination.latitude) || isNaN(destination.longitude)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid coordinates provided. Latitude and longitude must be valid numbers.'
-    });
+    return { error: { status: 400, message: 'Invalid coordinates provided. Latitude and longitude must be valid numbers.' } };
   }
 
-  // Calculate distance
-  const distance = calculateDistance(pickup, destination);
+  // Road distance from Google (same as the search page shows); straight-line only if Google can't route it
+  const distance = (await getRoadDistanceKm(pickup, destination)) ?? calculateDistance(pickup, destination);
   
   // Validate distance calculation
   if (isNaN(distance) || distance <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: 'Unable to calculate distance. Please check coordinates.'
-    });
+    return { error: { status: 400, message: 'Unable to calculate distance. Please check coordinates.' } };
   }
   
   // Calculate total amount using vehicle pricing
   let totalAmount = 0;
+  let platformFee = 0;
+  let advancePercentage = 20;
   let ratePerKm = 0;
   
   try {
     // Get trip type from request or default to one-way
     const tripType = req.body.tripType || 'one-way';
     
-    // Calculate fare based on vehicle type and pricing
+    // Calculate fare based on vehicle type and pricing (2x for both coming and going / round trip)
     if (vehicle.pricingReference?.category === 'auto') {
-      // For auto vehicles, use rate per km multiplied by distance
+      // For auto vehicles, use rate per km multiplied by distance (2x for both ways)
       const autoPricing = vehicle.pricing?.autoPrice;
       if (tripType === 'return') {
         ratePerKm = autoPricing?.return || autoPricing?.oneWay || 0;
-        totalAmount = ratePerKm * distance; // Multiply rate by distance
+        totalAmount = ratePerKm * distance * 2; // Both ways (2x)
       } else {
         ratePerKm = autoPricing?.oneWay || autoPricing?.return || 0;
-        totalAmount = ratePerKm * distance; // Multiply rate by distance
+        totalAmount = ratePerKm * distance * 2; // Both ways (2x)
       }
     } else {
       // For car and bus vehicles, calculate distance-based pricing
@@ -156,7 +224,8 @@ const createBooking = asyncHandler(async (req, res) => {
             ratePerKm = pricing['50km'];
           }
           
-          totalAmount = ratePerKm * distance;
+          // Fare is 2x distance (aane aur jane dono ka)
+          totalAmount = ratePerKm * distance * 2;
         }
       }
     }
@@ -166,29 +235,52 @@ const createBooking = asyncHandler(async (req, res) => {
     ratePerKm = Math.round(ratePerKm);
     
     if (totalAmount === 0 || isNaN(totalAmount)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Unable to calculate fare. Please check vehicle pricing.'
-      });
+      return { error: { status: 400, message: 'Unable to calculate fare. Please check vehicle pricing.' } };
     }
-    
+
+    const settings = await VehicleSetting.getOrCreateDefault();
+    // Admin's flat platform fee is part of what the user pays
+    platformFee = settings.platformFee || 0;
+    totalAmount += platformFee;
+    advancePercentage = settings.advancePercentage ?? 20;
+
   } catch (error) {
     console.error('Error calculating fare:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error calculating fare'
-    });
+    return { error: { status: 500, message: 'Error calculating fare' } };
   }
 
-  // Determine if this is a partial payment booking (bus/car with cash method)
-  const isPartialPayment = (vehicle.pricingReference?.category !== 'auto' && paymentMethod === 'cash');
-  
-  // Calculate partial payment amounts (30% online, 70% cash)
-  const onlineAmount = isPartialPayment ? Math.round(totalAmount * 0.3) : 0;
-  const cashAmount = isPartialPayment ? Math.round(totalAmount * 0.7) : totalAmount;
-  
+  // Admin's advance %: that share is paid online now, the rest in cash to the driver (100% = full online)
+  const isPartialPayment = advancePercentage < 100;
+  const advanceBeforeDiscount = isPartialPayment ? Math.round(totalAmount * advancePercentage) / 100 : totalAmount;
+  const cashAmount = isPartialPayment ? Math.round((totalAmount - advanceBeforeDiscount) * 100) / 100 : totalAmount;
+
+  // Coupon: re-checked here (never trust the client). The discount comes out of the platform's online
+  // share only, so the driver's cash is unchanged; at least ₹1 stays payable for Razorpay.
+  let discount = 0;
+  let couponCode;
+  if (req.body.couponCode) {
+    const coupon = await Offer.applyCoupon(req.body.couponCode, {
+      amount: totalAmount,
+      vehicleType: vehicle.pricingReference?.category
+    });
+    if (coupon.error) {
+      return { error: { status: 400, message: coupon.error } };
+    }
+    discount = Math.min(coupon.discount, advanceBeforeDiscount - 1);
+    couponCode = coupon.offer.code;
+  }
+  const onlineAmount = isPartialPayment ? Math.round((advanceBeforeDiscount - discount) * 100) / 100 : 0;
+  totalAmount -= discount;
+
+  // The Razorpay payment must cover what is due now (advance share, or full total)
+  const amountDueNow = isPartialPayment ? onlineAmount : totalAmount;
+  if (payment.amount + 1 < amountDueNow) {
+    return { error: { status: 400, message: `Paid ₹${payment.amount} but ₹${amountDueNow} is due. Fare may have changed, please try again` } };
+  }
+
   // Create booking with the new structure
   const booking = new Booking({
+    _id: bookingId,
     user: req.user.id,
     driver: vehicle.driver._id,
     vehicle: vehicleId,
@@ -218,17 +310,25 @@ const createBooking = asyncHandler(async (req, res) => {
       ratePerKm: ratePerKm,
       distance: distance,
       totalAmount: totalAmount,
+      platformFee: platformFee,
+      discount: discount,
+      couponCode: couponCode,
       // Add trip type to pricing
       tripType: req.body.tripType || 'one-way'
     },
     payment: {
-      method: paymentMethod,
-      status: 'pending',
+      method: 'razorpay',
+      // Full payment is done now; with an advance the booking stays pending until the driver collects the cash
+      status: isPartialPayment ? 'pending' : 'completed',
+      completedAt: isPartialPayment ? undefined : new Date(),
+      transactionId: payment.transactionId,
+      amount: payment.amount,
       isPartialPayment: isPartialPayment,
       partialPaymentDetails: isPartialPayment ? {
         onlineAmount: onlineAmount,
         cashAmount: cashAmount,
-        onlinePaymentStatus: 'pending',
+        onlinePaymentStatus: 'completed',
+        onlinePaymentId: payment._id,
         cashPaymentStatus: 'pending'
       } : undefined
     },
@@ -241,82 +341,18 @@ const createBooking = asyncHandler(async (req, res) => {
 
   await booking.save();
 
-  // Update vehicle availability (mark as booked)
-  await vehicle.markAsBooked(booking._id);
-
-  res.status(201).json({
-    success: true,
-    message: 'Booking created successfully',
-    data: {
-      bookingId: booking._id,
-      bookingNumber: booking.bookingNumber,
-      totalAmount: booking.pricing.totalAmount,
-      status: booking.status
-    }
-  });
-});
-
-// @desc    Test Puppeteer functionality
-// @route   GET /api/bookings/test-puppeteer
-// @access  Private
-const testPuppeteer = async (req, res, next) => {
+  // Booking is saved and paid from here on: never refund for these bookkeeping steps, just log
   try {
-    console.log('Testing Puppeteer functionality...');
-    
-    if (!puppeteer) {
-      return res.status(500).json({
-        success: false,
-        message: 'Puppeteer is not available'
-      });
-    }
-    
-    // Try to launch browser
-    const browser = await puppeteer.launch({ 
-      headless: true,
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage'
-      ]
-    });
-    
-    console.log('Browser launched successfully');
-    
-    const page = await browser.newPage();
-    console.log('Page created successfully');
-    
-    // Set simple content
-    await page.setContent('<html><body><h1>Test PDF</h1><p>This is a test.</p></body></html>');
-    console.log('Content set successfully');
-    
-    // Generate simple PDF
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true
-    });
-    
-    console.log('PDF generated successfully, size:', pdfBuffer.length);
-    
-    await browser.close();
-    console.log('Browser closed successfully');
-    
-    res.status(200).json({
-      success: true,
-      message: 'Puppeteer is working correctly',
-      pdfSize: pdfBuffer.length
-    });
-    
+    payment.type = isPartialPayment ? 'partial_booking' : 'booking';
+    payment.temporaryBookingId = undefined;
+    await payment.save();
+    await vehicle.markAsBooked(booking._id);
+    if (couponCode) await Offer.updateOne({ code: couponCode }, { $inc: { usedCount: 1 } });
   } catch (error) {
-    console.error('Puppeteer test failed:', error.message);
-    console.error('Error stack:', error.stack);
-    
-    res.status(500).json({
-      success: false,
-      message: 'Puppeteer test failed',
-      error: error.message,
-      stack: error.stack
-    });
+    console.error(`Post-booking update failed for booking ${booking._id}:`, error.message);
   }
+
+  return { booking };
 };
 
 // @desc    Get booking receipt
@@ -385,7 +421,10 @@ const getBookingReceipt = asyncHandler(async (req, res) => {
       vehicleType: booking.vehicle?.type || 'N/A',
       vehicleInfo: `${booking.vehicle?.brand || ''} ${booking.vehicle?.model || ''}`.trim() || 'N/A',
       vehicleRegistration: booking.vehicle?.registrationNumber || 'N/A',
-      ratePerKm: `₹${booking.pricing?.perKmPrice || 'N/A'}`,
+      ratePerKm: `₹${booking.pricing?.ratePerKm || booking.pricing?.perKmPrice || 'N/A'}`,
+      tripFare: `₹${((booking.pricing?.ratePerKm || 0) * (booking.tripDetails?.distance || 0) * 2) || ((booking.pricing?.totalAmount || 0) - (booking.pricing?.platformFee || 0) + (booking.pricing?.discount || 0)) || 'N/A'}`,
+      platformFee: booking.pricing?.platformFee ? `₹${booking.pricing.platformFee}` : null,
+      discount: booking.pricing?.discount ? `₹${booking.pricing.discount}` : null,
       totalAmount: `₹${booking.pricing?.totalAmount || 'N/A'}`
     };
 
@@ -597,17 +636,41 @@ const getBookingReceipt = asyncHandler(async (req, res) => {
             <h3>Pricing Breakdown</h3>
             <div class="info-row">
               <span class="info-label">Distance:</span>
-              <span class="info-value">${receiptData.distance || 'N/A'}</span>
+              <span class="info-value">${receiptData.distance || 'N/A'} (Round Trip / 2x: Both ways)</span>
             </div>
             <div class="info-row">
               <span class="info-label">Rate per km:</span>
               <span class="info-value">${receiptData.ratePerKm || 'N/A'}</span>
             </div>
+            <div class="info-row">
+              <span class="info-label">Trip Fare:</span>
+              <span class="info-value">${receiptData.tripFare || 'N/A'}</span>
+            </div>
+            ${receiptData.platformFee ? `
+            <div class="info-row">
+              <span class="info-label">Platform Fee:</span>
+              <span class="info-value">${receiptData.platformFee}</span>
+            </div>` : ''}
+            ${receiptData.discount ? `
+            <div class="info-row">
+              <span class="info-label">Discount:</span>
+              <span class="info-value">-${receiptData.discount}</span>
+            </div>` : ''}
           </div>
           
           <div class="total-section">
             <div style="font-size: 16px; margin-bottom: 10px;">Total Amount</div>
             <div class="total-amount">${receiptData.totalAmount || 'N/A'}</div>
+          </div>
+
+          <div class="info-section" style="margin-top: 20px;">
+            <h3>Important Notes</h3>
+            <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #4b5563; line-height: 1.6;">
+              <li><strong>Night Charge:</strong> Night charge of ₹1,000 is applicable and must be paid directly to the driver.</li>
+              <li><strong>Toll Taxes:</strong> Toll charges are not included in this fare and must be paid by the customer.</li>
+              <li><strong>Extra Hours:</strong> Travel beyond package / scheduled hours will be charged extra.</li>
+              <li><strong>Parking:</strong> Parking charges are not included and must be paid by the customer.</li>
+            </ul>
           </div>
           
           <div class="footer">
@@ -942,81 +1005,6 @@ const cancelBooking = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Update booking status
-// @route   PUT /api/bookings/:id/status
-// @access  Private (User/Driver)
-const updateBookingStatus = asyncHandler(async (req, res) => {
-  const { status } = req.body;
-
-  const booking = await Booking.findById(req.params.id);
-  if (!booking) {
-    return res.status(404).json({
-      success: false,
-      message: 'Booking not found'
-    });
-  }
-
-  // Check if user is authorized to update this booking
-  if (req.user && booking.user.toString() !== req.user.id) {
-    if (req.driver && booking.driver.toString() !== req.driver.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this booking'
-      });
-    }
-  }
-
-  // Update status with proper tracking
-  const oldStatus = booking.status;
-  booking.status = status;
-  
-  // Set tracking information based on who is updating
-  if (req.user) {
-    booking._updatedByModel = 'User';
-    booking._updatedBy = req.user.id;
-  } else if (req.driver) {
-    booking._updatedByModel = 'Driver';
-    booking._updatedBy = req.driver.id;
-  }
-  
-  // Add reason if provided
-  if (req.body.reason) {
-    booking._statusReason = req.body.reason;
-  }
-  
-  // Add notes if provided
-  if (req.body.notes) {
-    booking._statusNotes = req.body.notes;
-  }
-  
-  await booking.save();
-
-  // Vehicle status will be automatically updated by the pre-save middleware
-  
-  // Update vehicle statistics if trip is completed
-  if (status === 'completed') {
-    try {
-      const Vehicle = require('../models/Vehicle');
-      const vehicle = await Vehicle.findById(booking.vehicle);
-      if (vehicle) {
-        const actualDistance = booking.trip?.actualDistance || booking.tripDetails?.distance || 0;
-        const actualFare = booking.trip?.actualFare || booking.pricing?.totalAmount || 0;
-        await vehicle.updateStatistics(actualDistance, actualFare);
-        console.log(`📊 Updated vehicle ${vehicle._id} statistics: +1 trip, +${actualDistance}km, +₹${actualFare}`);
-      }
-    } catch (error) {
-      console.error('❌ Error updating vehicle statistics:', error);
-      // Don't fail the status update if statistics update fails
-    }
-  }
-
-  res.json({
-    success: true,
-      message: 'Booking status updated successfully',
-      data: booking
-    });
-});
-
 // @desc    Mark cash payment as collected (for partial payment bookings)
 // @route   PUT /api/bookings/:id/collect-cash-payment
 // @access  Private (Driver only)
@@ -1102,7 +1090,5 @@ module.exports = {
   createBooking,
   getBookingReceipt,
   cancelBooking,
-  updateBookingStatus,
-  collectCashPayment,
-  testPuppeteer
+  collectCashPayment
 };

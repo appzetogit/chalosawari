@@ -1,3 +1,5 @@
+import { resolveUploadsUrls } from '../utils/imageUrl';
+
 // Resolve API base URL without hardcoded insecure IPs
 const resolveApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
@@ -87,10 +89,11 @@ class ApiService {
   }
 
   // Get headers for API requests
-  getHeaders(role = 'user') {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
+  getHeaders(role = 'user', isFormData = false) {
+    const headers = {};
+    if (!isFormData) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     // Don't add authentication for public endpoints
     if (role === 'public') {
@@ -111,14 +114,22 @@ class ApiService {
       // Apply throttling to prevent rate limiting
       await this.throttleRequest();
       
+      const isFormData = options.body instanceof FormData;
+      const defaultHeaders = this.getHeaders(role, isFormData);
+      const customHeaders = options.headers || {};
+      const headers = { ...defaultHeaders, ...customHeaders };
+      if (isFormData && headers['Content-Type']) {
+        delete headers['Content-Type'];
+      }
+
       const url = `${this.baseURL}${endpoint}`;
       const config = {
         ...options,
-        headers: this.getHeaders(role),
+        headers,
       };
 
       const response = await fetch(url, config);
-      const data = await response.json();
+      let data = await response.json();
 
       if (!response.ok) {
         // Handle rate limiting with retry
@@ -150,6 +161,10 @@ class ApiService {
         throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
       }
 
+      if (data) {
+        data = resolveUploadsUrls(data);
+      }
+
       return data;
     } catch (error) {
       console.error('API request failed:', error);
@@ -162,10 +177,10 @@ class ApiService {
     return this.request('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData),
-    });
+    }, 'public');
   }
 
-  async sendOTP(phone, purpose = 'login') {
+  async sendOTP(phone, purpose = 'auth') {
     return this.request('/auth/send-otp', {
       method: 'POST',
       body: JSON.stringify({ phone, purpose }),
@@ -179,14 +194,18 @@ class ApiService {
     });
   }
 
-  async verifyOTP(phone, otp, purpose = 'login') {
+  async verifyOTP(phone, otp, purpose = 'auth', userData = null) {
+    const payload = { phone, otp, purpose };
+    if (userData) {
+      payload.userData = userData;
+    }
     return this.request('/auth/verify-otp', {
       method: 'POST',
-      body: JSON.stringify({ phone, otp, purpose }),
+      body: JSON.stringify(payload),
     }, 'public');
   }
 
-  async resendOTP(phone, purpose = 'login') {
+  async resendOTP(phone, purpose = 'auth') {
     return this.request('/auth/resend-otp', {
       method: 'POST',
       body: JSON.stringify({ phone, purpose }),
@@ -260,6 +279,16 @@ class ApiService {
     });
   }
 
+  async uploadUserAvatar(file) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    return this.request('/user/avatar', {
+      method: 'POST',
+      body: formData,
+    }, 'user');
+  }
+
   async getUserBookings(status = null, page = 1, limit = 10) {
     const params = new URLSearchParams();
     if (status) params.append('status', status);
@@ -267,17 +296,6 @@ class ApiService {
     params.append('limit', limit);
 
     return this.request(`/user/bookings?${params.toString()}`);
-  }
-
-  async getUserWallet() {
-    return this.request('/user/wallet');
-  }
-
-  async addMoneyToWallet(amount, description) {
-    return this.request('/user/wallet/add-money', {
-      method: 'POST',
-      body: JSON.stringify({ amount, description }),
-    });
   }
 
   async getUserPreferences() {
@@ -323,17 +341,17 @@ class ApiService {
     return this.request(`/bookings/${bookingId}/receipt`);
   }
 
-  async updateBookingStatus(bookingId, status, reason = null) {
-    return this.request(`/bookings/${bookingId}/status`, {
-      method: 'PUT',
-      body: JSON.stringify({ status, reason }),
-    });
-  }
-
   async cancelBooking(bookingId, reason) {
     return this.request(`/bookings/${bookingId}/cancel`, {
       method: 'PUT',
       body: JSON.stringify({ reason }),
+    });
+  }
+
+  async rateBooking(bookingId, stars, review = '') {
+    return this.request(`/user/bookings/${bookingId}/rating`, {
+      method: 'PUT',
+      body: JSON.stringify({ stars, review }),
     });
   }
 
@@ -353,6 +371,16 @@ class ApiService {
     return this.request('/driver/profile', {
       method: 'PUT',
       body: JSON.stringify(profileData),
+    }, 'driver');
+  }
+
+  async uploadDriverAvatar(file) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    return this.request('/driver/avatar', {
+      method: 'POST',
+      body: formData,
     }, 'driver');
   }
 

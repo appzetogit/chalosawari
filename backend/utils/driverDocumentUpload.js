@@ -1,47 +1,87 @@
 const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
+const fs = require('fs');
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+/**
+ * Local Disk Storage Engine for Driver Documents
+ * Writes incoming files to backend/public/uploads/driver-documents
+ * and attaches relative URLs (/uploads/driver-documents/{filename}) to req.file
+ */
+function DriverDocumentStorageEngine() {
+  this.folder = 'driver-documents';
+}
 
-// Configure Cloudinary storage for Driver Documents
-const driverDocumentStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'chalo-sawari/driver-documents',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-    transformation: [
-      { width: 1200, height: 800, crop: 'limit' }, // Resize images for documents
-      { quality: 'auto:good' } // Optimize quality
-    ]
+DriverDocumentStorageEngine.prototype._handleFile = function(req, file, cb) {
+  const uploadDir = path.join(__dirname, '../public/uploads', this.folder);
+  
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
   }
-});
 
-// Configure Multer for driver document uploads
+  const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+  const uniqueId = Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+  const filename = `${uniqueId}${ext}`;
+  const finalFilePath = path.join(uploadDir, filename);
+  const relativeUrl = `/uploads/${this.folder}/${filename}`;
+
+  const outStream = fs.createWriteStream(finalFilePath);
+  file.stream.pipe(outStream);
+
+  outStream.on('error', (err) => {
+    cb(err);
+  });
+
+  outStream.on('finish', () => {
+    cb(null, {
+      destination: uploadDir,
+      filename: filename,
+      path: relativeUrl, // Relative URL saved to DB
+      secure_url: relativeUrl,
+      url: relativeUrl,
+      public_id: `${this.folder}/${filename.replace(ext, '')}`,
+      bytes: outStream.bytesWritten,
+      size: outStream.bytesWritten,
+      format: ext.replace('.', '')
+    });
+  });
+};
+
+DriverDocumentStorageEngine.prototype._removeFile = function(req, file, cb) {
+  if (file && file.filename) {
+    const filePath = path.join(__dirname, '../public/uploads', this.folder, file.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlink(filePath, cb);
+    } else {
+      cb(null);
+    }
+  } else {
+    cb(null);
+  }
+};
+
+const driverDocumentStorage = new DriverDocumentStorageEngine();
+
+// Document file filter (images + PDF)
+const documentFileFilter = (req, file, cb) => {
+  // Both must match: the stored file keeps its extension and is served statically
+  const extname = /^\.(jpe?g|png|webp|pdf)$/.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = /^(image\/(jpeg|png|webp)|application\/pdf)$/.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Only image and PDF files are allowed for documents!'));
+  }
+};
+
+// Multer for driver document uploads
 const uploadDriverDocument = multer({
   storage: driverDocumentStorage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit for documents
-    files: 1 // Single file upload
+    fileSize: 15 * 1024 * 1024, // 15MB limit for documents
+    files: 1
   },
-  fileFilter: (req, file, cb) => {
-    // Check file type
-    const allowedTypes = /jpeg|jpg|png|webp|pdf/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only image and PDF files are allowed for documents!'));
-    }
-  }
+  fileFilter: documentFileFilter
 });
 
 // Middleware for single document upload
@@ -51,11 +91,10 @@ const uploadSingleDocument = uploadDriverDocument.single('document');
 const uploadDocumentWithErrorHandling = (req, res, next) => {
   uploadSingleDocument(req, res, (err) => {
     if (err instanceof multer.MulterError) {
-      console.log('Multer error:', err);
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
           success: false,
-          message: 'File too large. Maximum size is 10MB.'
+          message: 'File too large. Maximum size is 15MB.'
         });
       }
       return res.status(400).json({
@@ -63,7 +102,6 @@ const uploadDocumentWithErrorHandling = (req, res, next) => {
         message: `Upload error: ${err.message}`
       });
     } else if (err) {
-      console.log('Other upload error:', err);
       return res.status(400).json({
         success: false,
         message: err.message || 'File upload failed'
@@ -73,51 +111,59 @@ const uploadDocumentWithErrorHandling = (req, res, next) => {
   });
 };
 
-// Function to delete document from Cloudinary
-const deleteDocument = async (publicId) => {
+// Function to delete document from local storage
+const deleteDocument = async (documentPathOrId) => {
+  if (!documentPathOrId) return;
   try {
-    const result = await cloudinary.uploader.destroy(publicId);
-    return result;
+    let relativePath = documentPathOrId;
+    if (typeof documentPathOrId === 'string') {
+      if (documentPathOrId.startsWith('http://') || documentPathOrId.startsWith('https://')) {
+        const match = documentPathOrId.match(/\/uploads\/.+/);
+        if (match) {
+          relativePath = match[0];
+        } else {
+          return;
+        }
+      }
+
+      if (relativePath.startsWith('/uploads/')) {
+        const fullPath = path.join(__dirname, '../public', relativePath);
+        if (fs.existsSync(fullPath)) {
+          await fs.promises.unlink(fullPath);
+        }
+      } else {
+        const folders = ['driver-documents', 'vehicle-documents', 'documents'];
+        for (const folder of folders) {
+          const potentialPath = path.join(__dirname, '../public/uploads', folder, documentPathOrId);
+          if (fs.existsSync(potentialPath)) {
+            await fs.promises.unlink(potentialPath);
+            break;
+          }
+        }
+      }
+    }
   } catch (error) {
-    console.error('Error deleting document from Cloudinary:', error);
-    throw error;
+    console.error('Error deleting document from local storage:', error);
   }
 };
 
-// Function to get document URL from Cloudinary public ID
-const getDocumentUrl = (publicId) => {
-  if (publicId) {
-    return cloudinary.url(publicId, {
-      secure: true,
-      transformation: [
-        { width: 1200, height: 800, crop: 'limit' },
-        { quality: 'auto:good' }
-      ]
-    });
+// Function to get document URL
+const getDocumentUrl = (documentPath) => {
+  if (documentPath) {
+    return documentPath;
   }
   return null;
 };
 
 // Function to generate thumbnail for documents
-const generateDocumentThumbnail = async (imageUrl, width = 300, height = 200) => {
-  try {
-    const publicId = imageUrl.split('/').pop().split('.')[0];
-    const thumbnailUrl = cloudinary.url(publicId, {
-      width,
-      height,
-      crop: 'fill',
-      quality: 'auto:good'
-    });
-    return thumbnailUrl;
-  } catch (error) {
-    console.error('Error generating document thumbnail:', error);
-    return imageUrl; // Return original URL if thumbnail generation fails
-  }
+const generateDocumentThumbnail = async (imageUrl) => {
+  return imageUrl;
 };
 
 module.exports = {
   uploadDocumentWithErrorHandling,
   deleteDocument,
   getDocumentUrl,
-  generateDocumentThumbnail
+  generateDocumentThumbnail,
+  DriverDocumentStorageEngine
 };

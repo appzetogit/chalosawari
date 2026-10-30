@@ -6,6 +6,84 @@ export interface LocationData {
   description: string;
 }
 
+export const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
+  indore: { lat: 22.7196, lng: 75.8577 },
+  dewas: { lat: 22.9676, lng: 76.0534 },
+  ujjain: { lat: 23.1765, lng: 75.7885 },
+  bhopal: { lat: 23.2599, lng: 77.4126 },
+  jabalpur: { lat: 23.1815, lng: 79.9864 },
+  gwalior: { lat: 26.2183, lng: 78.1828 },
+  ratlam: { lat: 23.3315, lng: 75.0367 },
+  khandwa: { lat: 21.8314, lng: 76.3498 },
+  khargone: { lat: 21.8234, lng: 75.6189 },
+  hoshangabad: { lat: 22.7519, lng: 77.7289 },
+  narmadapuram: { lat: 22.7519, lng: 77.7289 },
+  mhow: { lat: 22.5542, lng: 75.7562 },
+  pithampur: { lat: 22.6139, lng: 75.6881 },
+  nagda: { lat: 23.4542, lng: 75.4167 },
+  sehore: { lat: 23.2033, lng: 77.0844 },
+  vidisha: { lat: 23.5251, lng: 77.8081 },
+  sagar: { lat: 23.8388, lng: 78.7378 },
+  satna: { lat: 24.5828, lng: 80.8322 },
+  rewa: { lat: 24.5373, lng: 81.3042 },
+  burhanpur: { lat: 21.3109, lng: 76.2294 },
+  neemuch: { lat: 24.4646, lng: 74.8722 },
+  mandsaur: { lat: 24.0725, lng: 75.0683 },
+  shajapur: { lat: 23.4273, lng: 76.2774 },
+  agar: { lat: 23.7145, lng: 76.0175 },
+  delhi: { lat: 28.6139, lng: 77.2090 },
+  mumbai: { lat: 19.0760, lng: 72.8777 },
+  pune: { lat: 18.5204, lng: 73.8567 },
+  ahmedabad: { lat: 23.0225, lng: 72.5714 },
+  jaipur: { lat: 26.9124, lng: 75.7873 },
+  kota: { lat: 25.2138, lng: 75.8648 },
+  surat: { lat: 21.1702, lng: 72.8311 },
+  vadodara: { lat: 22.3072, lng: 73.1812 },
+  nagpur: { lat: 21.1458, lng: 79.0882 }
+};
+
+export const resolveLocationCoordinates = async (
+  cityName: string
+): Promise<LocationData> => {
+  if (!cityName || !cityName.trim()) {
+    return { lat: 22.7196, lng: 75.8577, description: '' };
+  }
+
+  const cleanName = cityName.trim().toLowerCase();
+
+  // 1. Check local lookup for exact or partial match
+  for (const [key, coords] of Object.entries(CITY_COORDINATES)) {
+    if (cleanName.includes(key) || key.includes(cleanName)) {
+      return { ...coords, description: cityName };
+    }
+  }
+
+  // 2. Try Google Maps Geocoder if available
+  if (typeof (window as any).google !== 'undefined' && (window as any).google.maps && (window as any).google.maps.Geocoder) {
+    try {
+      const geocoder = new (window as any).google.maps.Geocoder();
+      const res = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+        geocoder.geocode({ address: cityName + ', India' }, (results: any, status: string) => {
+          if (status === 'OK' && results && results[0]) {
+            const loc = results[0].geometry.location;
+            resolve({ lat: loc.lat(), lng: loc.lng() });
+          } else {
+            resolve(null);
+          }
+        });
+      });
+      if (res) {
+        return { ...res, description: cityName };
+      }
+    } catch (e) {
+      console.warn('Google geocoding error:', e);
+    }
+  }
+
+  // 3. Fallback default (Indore default)
+  return { lat: 22.7196, lng: 75.8577, description: cityName };
+};
+
 /**
  * Calculate distance between two points using Haversine formula
  * @param from - Starting location coordinates
@@ -72,14 +150,6 @@ export const calculateVehicleFare = (
     return 0;
   }
 
-  // For auto vehicles, use fixed auto price
-  if (vehicle.pricingReference?.category === 'auto') {
-    const autoPricing = vehicle.pricing.autoPrice;
-    const ratePerKm = tripType === 'one-way' ? (autoPricing?.oneWay || autoPricing?.return || 0) : (autoPricing?.return || autoPricing?.oneWay || 0);
-    const totalFare = ratePerKm * distance;
-    return Math.round(totalFare); // Round to whole rupees
-  }
-
   // For car and bus vehicles, calculate distance-based pricing
   const distancePricing = vehicle.pricing.distancePricing;
   if (!distancePricing) {
@@ -93,7 +163,8 @@ export const calculateVehicleFare = (
 
   const distanceCategory = getDistancePricingCategory(distance);
   const ratePerKm = pricing[distanceCategory] || 0;
-  const totalFare = ratePerKm * distance;
+  // Fare is 2x distance (aane aur jane dono ka / round trip)
+  const totalFare = ratePerKm * distance * 2;
   
   return Math.round(totalFare); // Round to whole rupees
 };
@@ -129,28 +200,6 @@ export const getPricingDisplay = (
     };
   }
 
-  // For auto vehicles
-  if (vehicle.pricingReference?.category === 'auto') {
-    const autoPricing = vehicle.pricing.autoPrice;
-    const ratePerKm = tripType === 'one-way' ? (autoPricing?.oneWay || autoPricing?.return || 0) : (autoPricing?.return || autoPricing?.oneWay || 0);
-    
-    if (ratePerKm === 0) {
-      return {
-        price: 0,
-        displayText: 'Price not found',
-        isValid: false
-      };
-    }
-    
-    const totalPrice = Math.round(ratePerKm * distance); // Round to whole rupees
-    
-    return {
-      price: totalPrice,
-      displayText: `${formatPrice(totalPrice)}`,
-      isValid: totalPrice > 0
-    };
-  }
-
   // For car and bus vehicles
   const distancePricing = vehicle.pricing.distancePricing;
   if (!distancePricing) {
@@ -172,11 +221,12 @@ export const getPricingDisplay = (
 
   const distanceCategory = getDistancePricingCategory(distance);
   const ratePerKm = pricing[distanceCategory] || 0;
-  const totalPrice = Math.round(ratePerKm * distance); // Round to whole rupees
+  // Fare is 2x distance (aane aur jane dono ka / round trip)
+  const totalPrice = Math.round(ratePerKm * distance * 2); // Round to whole rupees
 
   return {
     price: totalPrice,
-    displayText: `${formatPrice(totalPrice)} (${distanceCategory} rate: ₹${ratePerKm}/km)`,
+    displayText: `${formatPrice(totalPrice)} (${distanceCategory} rate: ₹${ratePerKm}/km × 2)`,
     isValid: totalPrice > 0
   };
 };

@@ -21,6 +21,9 @@ interface BookingData {
   passengers: number;
   paymentMethod: 'cash' | 'razorpay';
   specialRequests?: string;
+  returnDate?: string | null;
+  paymentId: string; // verified Razorpay payment (from /payments/verify) this booking is paid with
+  couponCode?: string;
 }
 
 class BookingApiService {
@@ -41,8 +44,6 @@ class BookingApiService {
     console.log('Debug - API Request Details:');
     console.log('Debug - URL:', url);
     console.log('Debug - Token exists:', !!token);
-    console.log('Debug - Token preview:', token ? `${token.substring(0, 20)}...` : 'No token');
-    console.log('Debug - All localStorage keys:', Object.keys(localStorage));
     
     if (!token) {
       console.error('Debug - No authentication token found! User must be logged in.');
@@ -57,8 +58,6 @@ class BookingApiService {
       },
       ...options,
     };
-
-    console.log('Debug - Request headers:', config.headers);
 
     try {
       const response = await fetch(url, config);
@@ -78,7 +77,7 @@ class BookingApiService {
         } else if (response.status === 400) {
           const errorDetails = data.error?.details || [];
           const fieldErrors = errorDetails.map((err: any) => `${err.field}: ${err.message}`).join(', ');
-          throw new Error(`Validation failed: ${fieldErrors || data.error?.message || 'Invalid data'}`);
+          throw new Error(fieldErrors ? `Validation failed: ${fieldErrors}` : (data.error?.message || data.message || 'Invalid data'));
         } else {
           throw new Error(data.error?.message || data.message || 'Something went wrong');
         }
@@ -137,13 +136,6 @@ class BookingApiService {
     return this.request(`/bookings/${bookingId}/cancel`, {
       method: 'PUT',
       body: JSON.stringify(body),
-    });
-  }
-
-  async updateBookingStatus(bookingId: string, status: string) {
-    return this.request(`/bookings/${bookingId}/status`, {
-      method: 'PUT',
-      body: JSON.stringify({ status }),
     });
   }
 }

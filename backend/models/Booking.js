@@ -126,6 +126,17 @@ const BookingSchema = new mongoose.Schema({
       type: Number,
       required: [true, 'Total amount is required']
     },
+    // Platform fee included in totalAmount (platform revenue, not driver fare)
+    platformFee: {
+      type: Number,
+      default: 0
+    },
+    // Coupon discount already taken off totalAmount (absorbed by the platform, not the driver)
+    discount: {
+      type: Number,
+      default: 0
+    },
+    couponCode: String,
     tripType: {
       type: String,
       enum: ['one-way', 'return'],
@@ -340,6 +351,13 @@ const BookingSchema = new mongoose.Schema({
   bookingNumber: {
     type: String,
     unique: true
+  },
+
+  // Passenger's rating of the completed trip (one per booking)
+  rating: {
+    stars: { type: Number, min: 1, max: 5 },
+    review: { type: String, trim: true, maxlength: 500 },
+    ratedAt: Date
   }
 }, {
   timestamps: true
@@ -348,14 +366,22 @@ const BookingSchema = new mongoose.Schema({
 // Add pagination plugin
 BookingSchema.plugin(mongoosePaginate);
 
-// Pre-save middleware to generate booking number
-BookingSchema.pre('save', function(next) {
+// Next value of a named sequence (atomic $inc in the `counters` collection)
+const nextSequence = async (name) => {
+  const res = await mongoose.connection.collection('counters').findOneAndUpdate(
+    { _id: name },
+    { $inc: { seq: 1 } },
+    { upsert: true, returnDocument: 'after' }
+  );
+  return (res?.value ?? res).seq; // driver v5 wraps the doc in { value }, v6 returns it directly
+};
+
+// Pre-save middleware to generate a short sequential booking number: CS001, CS002, ... CS1000
+BookingSchema.pre('save', async function() {
   if (this.isNew && !this.bookingNumber) {
-    const timestamp = Date.now().toString().slice(-8);
-    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-    this.bookingNumber = `CS${timestamp}${random}`;
+    const seq = await nextSequence('bookingNumber');
+    this.bookingNumber = `CS${String(seq).padStart(3, '0')}`;
   }
-  next();
 });
 
 // Pre-save middleware to track status changes and update vehicle status

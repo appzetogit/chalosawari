@@ -4,7 +4,7 @@ import DriverTopNavigation from "@/driver/components/DriverTopNavigation";
 import DriverBottomNavigation from "@/driver/components/DriverBottomNavigation";
 import DriverHeroSection from "@/driver/components/DriverHeroSection";
 import DriverAgreementForm from "@/driver/components/DriverAgreementForm";
-import { Home, MessageSquare, Car, User, LogOut, Loader2 } from "lucide-react";
+import { MessageSquare, Car, Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +13,7 @@ import driverApiService from "@/services/driverApi";
 
 const DriverHome = () => {
   const navigate = useNavigate();
-  const { driver, isLoggedIn, logout, refreshDriverData } = useDriverAuth();
-  const [activeTab, setActiveTab] = useState("home");
+  const { driver, isLoggedIn, logout, refreshDriverData, updateDriverData } = useDriverAuth();
   const [isLoaded, setIsLoaded] = useState(false);
   const [dashboardData, setDashboardData] = useState({
     activeRequests: 0,
@@ -28,7 +27,6 @@ const DriverHome = () => {
   // Check if driver has accepted the agreement
   const hasAcceptedAgreement = driver?.agreement?.isAccepted || false;
 
-  // Fetch dashboard data on component mount
   useEffect(() => {
     let isMounted = true;
     let timeoutId: NodeJS.Timeout;
@@ -36,35 +34,22 @@ const DriverHome = () => {
     const fetchDashboardData = async () => {
       try {
         if (!isMounted) return;
-        
         setIsLoading(true);
         setError(null);
         
         const summary = await driverApiService.getDashboardSummary();
         
         if (!isMounted) return;
-        
-        // Use fallback values if data is missing
-        const fallbackData = {
+        setDashboardData({
           activeRequests: summary.activeRequests || 0,
-          totalVehicles: summary.totalVehicles || 1, // At least 1 vehicle
+          totalVehicles: summary.totalVehicles || 0,
           completedRides: summary.completedRides || 0,
           totalEarnings: summary.totalEarnings || 0
-        };
-        
-        setDashboardData(fallbackData);
-        
+        });
       } catch (err) {
         if (!isMounted) return;
-        
         console.error('DriverHome: Error fetching dashboard data:', err);
         setError('Failed to load dashboard data');
-        setDashboardData({
-          activeRequests: 0,
-          totalVehicles: 1, // Assume driver has at least 1 vehicle
-          completedRides: 0,
-          totalEarnings: 0
-        });
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -73,16 +58,8 @@ const DriverHome = () => {
     };
 
     if (driver) {
-      // Add a small delay to prevent rapid API calls
-      timeoutId = setTimeout(fetchDashboardData, 500);
+      timeoutId = setTimeout(fetchDashboardData, 300);
     } else {
-      // Set fallback data even when no driver is found
-      setDashboardData({
-        activeRequests: 0,
-        totalVehicles: 1,
-        completedRides: 0,
-        totalEarnings: 0
-      });
       setIsLoading(false);
     }
 
@@ -96,40 +73,31 @@ const DriverHome = () => {
 
   useEffect(() => {
     if (isLoggedIn) {
-      // Add a small delay for animation effect
-      setTimeout(() => setIsLoaded(true), 100);
+      setTimeout(() => setIsLoaded(true), 50);
     }
   }, [isLoggedIn]);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/driver-auth');
-  };
-
   const handleAgreementAccepted = async () => {
-    // Refresh driver data to get updated agreement status
+    updateDriverData({
+      agreement: {
+        isAccepted: true,
+        acceptedAt: new Date().toISOString()
+      }
+    });
     await refreshDriverData();
-  };
-
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    switch (tab) {
-      case "requests":
-        navigate('/driver/requests');
-        break;
-      case "myvehicle":
-        navigate('/driver/myvehicle');
-        break;
-      case "profile":
-        navigate('/driver/profile');
-        break;
-      default:
-        navigate('/driver');
-    }
   };
 
   if (!isLoggedIn) {
     return null;
+  }
+
+  // Wait until driver data is loaded to avoid blinking the agreement form on refresh
+  if (!driver) {
+    return (
+      <div className="flex-1 flex flex-col min-h-screen bg-slate-50/70 items-center justify-center">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
   }
 
   // Show agreement form if driver hasn't accepted it yet
@@ -137,161 +105,96 @@ const DriverHome = () => {
     return (
       <DriverAgreementForm 
         onAgreementAccepted={handleAgreementAccepted}
-        driverName={driver ? `${driver.firstName} ${driver.lastName}` : "Driver"}
+        driverName={`${driver.firstName} ${driver.lastName}`}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 overflow-y-auto">
+    <div className="flex-1 flex flex-col min-h-screen bg-slate-50/70 pb-24">
       <DriverTopNavigation />
-      {/* Driver Header with Animation */}
-      <div className={`bg-gradient-to-r from-blue-600 to-blue-700 text-white py-6 shadow-lg transform transition-all duration-1000 ${
-        isLoaded ? 'translate-y-0 opacity-100' : 'translate-y-[-20px] opacity-0'
-      }`}>
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className={`w-12 h-12 bg-white/20 rounded-full flex items-center justify-center transform transition-all duration-700 delay-300 ${
-                isLoaded ? 'scale-100 rotate-0' : 'scale-0 rotate-180'
-              }`}>
-                <Car className="w-6 h-6 text-white animate-bounce" />
+
+      <div className="px-4 py-3 space-y-4 flex-1">
+        {/* Driver Hero Section */}
+        <DriverHeroSection />
+
+        {/* Quick Action Navigation Cards */}
+        <div className="space-y-2.5">
+          <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider px-1">Quick Actions</h3>
+          
+          <div className="grid grid-cols-1 gap-2.5">
+            {/* Active Requests Card */}
+            <Card 
+              onClick={() => navigate('/driver/requests')}
+              className="p-3.5 bg-white hover:bg-blue-50/50 border border-gray-100 rounded-2xl shadow-xs transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <MessageSquare className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900">Trip Requests</h4>
+                    <p className="text-[11px] text-gray-500">
+                      {dashboardData.activeRequests > 0 
+                        ? `${dashboardData.activeRequests} new trip request(s) waiting`
+                        : "Check incoming booking requests"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Badge className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-lg">
+                    {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : dashboardData.activeRequests}
+                  </Badge>
+                  <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-colors" />
+                </div>
               </div>
-              <div className={`transform transition-all duration-700 delay-500 ${
-                isLoaded ? 'translate-x-0 opacity-100' : 'translate-x-[-20px] opacity-0'
-              }`}>
-                <h1 className="text-2xl font-bold animate-pulse">Owner Driver Module</h1>
-                <p className="text-blue-100 flex items-center">
-                  <span className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-ping"></span>
-                  Welcome back, Owner Driver!
-                </p>
+            </Card>
+
+            {/* My Vehicles Card */}
+            <Card 
+              onClick={() => navigate('/driver/myvehicle')}
+              className="p-3.5 bg-white hover:bg-emerald-50/50 border border-gray-100 rounded-2xl shadow-xs transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Car className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900">My Vehicles</h4>
+                    <p className="text-[11px] text-gray-500">Manage fleet details and pricing</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs px-2 py-0.5 rounded-lg">
+                    {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : dashboardData.totalVehicles}
+                  </Badge>
+                  <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600 transition-colors" />
+                </div>
               </div>
-            </div>
+            </Card>
           </div>
         </div>
-      </div>
-      {/* Main Content with Staggered Animations */}
-      <div className="container mx-auto px-4 py-2 pb-20">
-        {activeTab === "home" && (
-          <div className={`space-y-6 transform transition-all duration-1000 delay-700 ${
-            isLoaded ? 'translate-y-0 opacity-100' : 'translate-y-[20px] opacity-0'
-          }`}>
-            {/* Driver Hero Section */}
-             <div className={`transform transition-all duration-700 delay-800 mt-4 ${
-              isLoaded ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-            }`}>
-              <DriverHeroSection />
-            </div>
-            {/* Quick Action Cards with Staggered Animation */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Active Requests Card */}
-              <Card className={`hover:shadow-xl hover:scale-105 transition-all duration-300 bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 transform ${
-                isLoaded ? 'translate-y-0 opacity-100' : 'translate-y-[30px] opacity-0'
-              }`} style={{ transitionDelay: '900ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center space-x-2">
-                    <MessageSquare className="w-5 h-5 text-blue-600 animate-pulse" />
-                    <span>Active Requests</span>
-                    <Badge variant="secondary" className="ml-auto bg-blue-600 text-white animate-bounce">
-                      <span className="font-bold text-lg">
-                        {isLoading ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          dashboardData.activeRequests
-                        )}
-                      </span>
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-600 mb-3">
-                    You have {dashboardData.activeRequests} pending ride requests
-                  </p>
-                  <Button 
-                    className="w-full bg-blue-600 hover:bg-blue-700 transform hover:scale-105 transition-all duration-200 hover:shadow-lg"
-                    onClick={() => handleTabChange("requests")}
-                  >
-                    View Requests
-                  </Button>
-                </CardContent>
-              </Card>
-              {/* My Vehicles Card */}
-              <Card className={`hover:shadow-xl hover:scale-105 transition-all duration-300 bg-gradient-to-br from-green-50 to-green-100 border-green-200 transform ${
-                isLoaded ? 'translate-y-0 opacity-100' : 'translate-y-[30px] opacity-0'
-              }`} style={{ transitionDelay: '1100ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center space-x-2">
-                    <Car className="w-5 h-5 text-green-600 animate-pulse" />
-                    <span>My Vehicles</span>
-                    <Badge variant="secondary" className="ml-auto bg-green-600 text-white">
-                      <span className="font-bold text-lg">
-                        {isLoading ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          dashboardData.totalVehicles
-                        )}
-                      </span>
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Manage your {dashboardData.totalVehicles} registered vehicles
-                  </p>
-                  <Button 
-                    variant="outline"
-                    className="w-full border-green-600 text-green-600 hover:bg-green-50 transform hover:scale-105 transition-all duration-200 hover:shadow-lg"
-                    onClick={() => handleTabChange("myvehicle")}
-                  >
-                    View Vehicles
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-            {/* Stats Section with Real Data */}
-            <div className={`grid grid-cols-1 md:grid-cols-4 gap-4 mt-8 transform transition-all duration-1000 delay-1500 ${
-              isLoaded ? 'translate-y-0 opacity-100' : 'translate-y-[20px] opacity-0'
-            }`}>
-             
-              <Card className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-center p-4">
-                <div className="text-3xl font-bold mb-1">
-                  {isLoading ? (
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                  ) : (
-                    dashboardData.completedRides
-                  )}
-                </div>
-                <div className="text-sm opacity-90">Completed Rides</div>
-              </Card>
-              <Card className="bg-gradient-to-r from-orange-500 to-orange-600 text-white text-center p-4">
-                <div className="text-3xl font-bold mb-1">
-                  {isLoading ? (
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                  ) : (
-                    `₹${dashboardData.totalEarnings.toLocaleString()}`
-                  )}
-                </div>
-                <div className="text-sm opacity-90">Total Earnings</div>
-              </Card>
-            </div>
-            {/* Error Display */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-                <p className="text-red-600 text-sm mb-2">{error}</p>
-                <Button 
-                  onClick={() => window.location.reload()} 
-                  className="bg-red-600 hover:bg-red-700"
-                >
-                  Retry
-                </Button>
-              </div>
-            )}
+
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-3.5 text-center">
+            <p className="text-red-600 text-xs mb-2">{error}</p>
+            <Button 
+              size="sm"
+              onClick={() => window.location.reload()} 
+              className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white rounded-lg"
+            >
+              Retry
+            </Button>
           </div>
         )}
       </div>
+
       <DriverBottomNavigation />
     </div>
   );
 };
 
-export default DriverHome; 
+export default DriverHome;

@@ -23,6 +23,7 @@ export const useCountAnimation = ({
       return;
     }
 
+    let animationFrameId: number;
     const timer = setTimeout(() => {
       const startTime = Date.now();
       const difference = end - start;
@@ -39,16 +40,21 @@ export const useCountAnimation = ({
         setCount(currentCount);
 
         if (progress < 1) {
-          requestAnimationFrame(animate);
+          animationFrameId = requestAnimationFrame(animate);
         } else {
           setCount(end);
         }
       };
 
-      requestAnimationFrame(animate);
+      animationFrameId = requestAnimationFrame(animate);
     }, delay);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [end, start, duration, delay, enabled]);
 
   return count;

@@ -1,7 +1,18 @@
+import { resolveUploadsUrls } from '../utils/imageUrl';
+
 interface Offer {
   _id: string;
   title: string;
+  description?: string;
   image: string;
+  code?: string;
+  discountType?: 'percent' | 'flat';
+  discountValue?: number;
+  maxDiscount?: number;
+  minBookingAmount?: number;
+  vehicleType?: 'all' | 'car' | 'bus';
+  validTill?: string | null;
+  usedCount?: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -19,6 +30,39 @@ interface OfferResponse {
     itemsPerPage: number;
   };
 }
+
+// Editable offer/coupon fields sent from the admin form
+type OfferFields = Pick<Offer, 'title' | 'description' | 'code' | 'discountType' | 'discountValue' | 'maxDiscount' | 'minBookingAmount' | 'vehicleType'> & { validTill?: string };
+
+const toFormData = (fields: OfferFields, image?: File | null) => {
+  const formData = new FormData();
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) formData.append(key, String(value));
+  });
+  if (image) formData.append('image', image);
+  return formData;
+};
+
+// Coupon accepted at checkout, with the rules needed to recompute its discount
+interface AppliedCoupon {
+  code: string;
+  title: string;
+  discount: number;
+  discountType: 'percent' | 'flat';
+  discountValue: number;
+  maxDiscount: number;
+  minBookingAmount: number;
+}
+
+// Same formula as Offer.applyCoupon on the backend
+export const couponDiscountFor = (coupon: AppliedCoupon, amount: number) => {
+  if (amount < coupon.minBookingAmount) return 0;
+  let discount = coupon.discountType === 'percent'
+    ? Math.round(amount * coupon.discountValue / 100)
+    : coupon.discountValue;
+  if (coupon.discountType === 'percent' && coupon.maxDiscount > 0) discount = Math.min(discount, coupon.maxDiscount);
+  return Math.min(discount, amount);
+};
 
 interface OfferStats {
   totalOffers: number;
@@ -41,23 +85,25 @@ class OfferApiService {
 
   private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
-    console.log('Admin token:', token ? 'Present' : 'Missing');
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     };
   }
 
-  // Get all active offers (public)
-  async getActiveOffers(): Promise<OfferResponse> {
-    const response = await fetch(`${this.baseURL}/offers`);
-    
+  private async parseResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
+    const data = await response.json();
+    return resolveUploadsUrls(data);
+  }
 
-    return response.json();
+  // Get all active offers (public)
+  async getActiveOffers(): Promise<OfferResponse> {
+    const response = await fetch(`${this.baseURL}/offers`);
+    return this.parseResponse<OfferResponse>(response);
   }
 
   // Get all offers (admin only)
@@ -74,12 +120,7 @@ class OfferApiService {
       headers: this.getAuthHeaders()
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+    return this.parseResponse<OfferResponse>(response);
   }
 
   // Get offer by ID (admin only)
@@ -88,30 +129,15 @@ class OfferApiService {
       headers: this.getAuthHeaders()
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+    return this.parseResponse<OfferResponse>(response);
   }
 
   // Create new offer (admin only)
-  async createOffer(title: string, image: File): Promise<OfferResponse> {
-    const formData = new FormData();
-    formData.append('title', title);
-    formData.append('image', image);
-
-    console.log('Creating offer with:', { title, image: { name: image.name, size: image.size, type: image.type } });
+  async createOffer(fields: OfferFields, image?: File | null): Promise<OfferResponse> {
+    const formData = toFormData(fields, image);
 
     const headers = this.getAuthHeaders();
     delete headers['Content-Type']; // Let browser set content-type for FormData
-
-    console.log('Request headers:', headers);
-    console.log('FormData entries:');
-    for (let [key, value] of formData.entries()) {
-      console.log(key, value);
-    }
 
     const response = await fetch(`${this.baseURL}/offers/admin`, {
       method: 'POST',
@@ -119,25 +145,12 @@ class OfferApiService {
       body: formData
     });
 
-    console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.log('Error response:', errorData);
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+    return this.parseResponse<OfferResponse>(response);
   }
 
   // Update offer (admin only)
-  async updateOffer(id: string, title: string, image?: File): Promise<OfferResponse> {
-    const formData = new FormData();
-    formData.append('title', title);
-    if (image) {
-      formData.append('image', image);
-    }
+  async updateOffer(id: string, fields: OfferFields, image?: File | null): Promise<OfferResponse> {
+    const formData = toFormData(fields, image);
 
     const headers = this.getAuthHeaders();
     delete headers['Content-Type']; // Let browser set content-type for FormData
@@ -148,12 +161,7 @@ class OfferApiService {
       body: formData
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+    return this.parseResponse<OfferResponse>(response);
   }
 
   // Delete offer (admin only)
@@ -163,15 +171,23 @@ class OfferApiService {
       headers: this.getAuthHeaders()
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+    return this.parseResponse<OfferResponse>(response);
   }
 
-
+  // Check a coupon for the checkout amount (logged-in user)
+  async validateCoupon(code: string, amount: number, vehicleType?: string): Promise<AppliedCoupon> {
+    const token = localStorage.getItem('token') || localStorage.getItem('userToken') || localStorage.getItem('authToken');
+    const response = await fetch(`${this.baseURL}/offers/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code, amount, vehicleType })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || data.error?.message || 'Invalid coupon code');
+    }
+    return data.data;
+  }
 
   // Get offer statistics (admin only)
   async getOfferStats(): Promise<OfferStatsResponse> {
@@ -179,14 +195,9 @@ class OfferApiService {
       headers: this.getAuthHeaders()
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+    return this.parseResponse<OfferStatsResponse>(response);
   }
 }
 
 export const offerApi = new OfferApiService();
-export type { Offer, OfferResponse, OfferStats, OfferStatsResponse };
+export type { Offer, OfferFields, OfferResponse, OfferStats, OfferStatsResponse, AppliedCoupon };
