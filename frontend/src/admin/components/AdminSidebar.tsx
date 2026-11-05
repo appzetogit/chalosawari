@@ -28,7 +28,8 @@ import {
   HelpCircle,
   RotateCcw,
   SlidersHorizontal,
-  Star
+  Star,
+  Bell
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,11 @@ const AdminSidebar = ({ isMobileOpen = false, onMobileOpenChange }: AdminSidebar
       title: "Payment Management",
       href: "/admin/payments",
       icon: CreditCard,
+    },
+    {
+      title: "Notification",
+      href: "/admin/notifications",
+      icon: Bell,
     },
     {
       title: "Offers",
@@ -204,4 +210,4 @@ const AdminSidebar = ({ isMobileOpen = false, onMobileOpenChange }: AdminSidebar
   );
 };
 
-export default AdminSidebar; 
+export default AdminSidebar;

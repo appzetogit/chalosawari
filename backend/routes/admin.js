@@ -51,6 +51,11 @@ const {
   getVehicleBookingEarnings
 } = require('../controllers/adminEarningsController');
 const { getAdminReviews } = require('../controllers/adminReviewController');
+const {
+  sendNotification,
+  getNotifications,
+  deleteNotification
+} = require('../controllers/adminNotificationController');
 const { protectAdmin } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { uploadDocumentWithErrorHandling } = require('../utils/driverDocumentUpload');
@@ -337,5 +342,16 @@ router.get('/earnings/vehicles/:vehicleId', [
 
 // Admin Ratings & Reviews route
 router.get('/reviews', getAdminReviews);
+
+// Admin Notifications routes
+router.post('/notifications', [
+  body('title').notEmpty().withMessage('Title is required').trim(),
+  body('description').notEmpty().withMessage('Description is required').trim(),
+  body('targetAudience').isIn(['user', 'driver', 'all']).withMessage('Invalid target audience')
+], validate, sendNotification);
+router.get('/notifications', getNotifications);
+router.delete('/notifications/:id', [
+  param('id').isMongoId().withMessage('Invalid notification ID')
+], validate, deleteNotification);
 
 module.exports = router;

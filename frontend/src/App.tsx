@@ -31,6 +31,7 @@ import AdminVehicleManagement from "./admin/pages/AdminVehicleManagement";
 import AdminVehicleSettings from "./admin/pages/AdminVehicleSettings";
 
 import AdminPaymentManagement from "./admin/pages/AdminPaymentManagement";
+import AdminNotifications from "./admin/pages/AdminNotifications";
 
 import AdminBookingManagement from "./admin/pages/AdminBookingManagement";
 import AdminEarnings from "./admin/pages/AdminEarnings";
@@ -136,6 +137,7 @@ const App = () => (
                 <Route path="/admin/vehicle-settings" element={<ProtectedAdminRoute><AdminVehicleSettings /></ProtectedAdminRoute>} />
                 <Route path="/admin/vehicles" element={<ProtectedAdminRoute><AdminVehicleManagement /></ProtectedAdminRoute>} />
                 <Route path="/admin/payments" element={<ProtectedAdminRoute><AdminPaymentManagement /></ProtectedAdminRoute>} />
+                <Route path="/admin/notifications" element={<ProtectedAdminRoute><AdminNotifications /></ProtectedAdminRoute>} />
                 <Route path="/admin/offers" element={<ProtectedAdminRoute><AdminOffers /></ProtectedAdminRoute>} />
                 <Route path="/admin/reviews" element={<ProtectedAdminRoute><AdminReviews /></ProtectedAdminRoute>} />
                 <Route path="/admin/help" element={<ProtectedAdminRoute><AdminHelpSupport /></ProtectedAdminRoute>} />

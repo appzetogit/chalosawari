@@ -438,4 +438,46 @@ export const adminReviews = {
   }
 };
 
+// Admin Notifications
+export interface AdminNotificationItem {
+  _id: string;
+  title: string;
+  description: string;
+  targetAudience: 'user' | 'driver' | 'all';
+  sentBy?: {
+    _id: string;
+    name?: string;
+    email?: string;
+  };
+  status: 'sent' | 'scheduled' | 'failed';
+  recipientCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const adminNotifications = {
+  send: async (data: {
+    title: string;
+    description: string;
+    targetAudience: 'user' | 'driver' | 'all';
+  }) => {
+    const response = await adminApi.post('/notifications', data);
+    return response.data;
+  },
+
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    targetAudience?: 'user' | 'driver' | 'all';
+  }) => {
+    const response = await adminApi.get('/notifications', { params });
+    return response.data;
+  },
+
+  delete: async (id: string) => {
+    const response = await adminApi.delete(`/notifications/${id}`);
+    return response.data;
+  }
+};
+
 export default adminApi;
