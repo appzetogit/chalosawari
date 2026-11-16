@@ -7,7 +7,9 @@ const FIELD = { web: 'fcmTokens', mobile: 'fcmTokenMobile' };
 
 let ready = false;
 try {
-  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  // Relative paths resolve from backend/, so the same .env value works on Windows and the server
+  const envPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const path = envPath && require('path').resolve(__dirname, '..', envPath);
   if (path && fs.existsSync(path)) {
     initializeApp({ credential: cert(JSON.parse(fs.readFileSync(path, 'utf8'))) });
     ready = true;
