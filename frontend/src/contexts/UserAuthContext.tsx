@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import apiService from '@/services/api';
+import { registerFcmToken, unregisterFcmToken } from '@/lib/fcm';
 
 interface User {
   _id: string;
@@ -64,6 +65,11 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
   const [isLoading, setIsLoading] = useState(true);
 
   const isAuthenticated = !!user;
+
+  // Store FCM token after login / register / session restore
+  useEffect(() => {
+    if (user?._id) registerFcmToken('user');
+  }, [user?._id]);
 
   // Check if user is already logged in on app start
   useEffect(() => {
@@ -179,6 +185,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
   };
 
   const logout = () => {
+    unregisterFcmToken('user');
     try {
       console.log('Logging out user');
       // Clear user data first

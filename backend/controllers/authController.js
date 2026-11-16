@@ -5,6 +5,13 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { sendOTP } = require('../utils/notifications');
 const crypto = require('crypto');
+const { saveFcmToken, removeFcmToken } = require('../utils/fcm');
+
+const fcmPlatform = (p) => (p === 'mobile' ? 'mobile' : 'web');
+
+// Optional fcmToken/platform sent with verify-otp (native apps) — never blocks login
+const storeLoginFcm = (Model, id, body) =>
+  body.fcmToken ? saveFcmToken(Model, id, body.fcmToken, fcmPlatform(body.platform)).catch(e => console.error('FCM save failed:', e.message)) : null;
 
 // Generate JWT Token
 const generateToken = (id, role = 'user') => {
@@ -278,6 +285,7 @@ const verifyOTPAndProceed = async (req, res, next) => {
       }
 
       console.log(`✅ Existing user verified & logged in directly: ${normalizedPhone}`);
+      await storeLoginFcm(User, existingUser._id, req.body);
       return sendTokenResponse(existingUser, 200, res, 'user');
     }
 
@@ -306,6 +314,7 @@ const verifyOTPAndProceed = async (req, res, next) => {
       }
 
       console.log(`🎉 New user created & logged in: ${normalizedPhone}`);
+      await storeLoginFcm(User, newUser._id, req.body);
       return sendTokenResponse(newUser, 201, res, 'user');
     }
 
@@ -756,6 +765,7 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
 
       const newDriver = await Driver.create(driverDataToSave);
       await newDriver.generateVerificationCode();
+      await storeLoginFcm(Driver, newDriver._id, req.body);
       return sendTokenResponse(newDriver, 201, res, 'driver');
     }
 
@@ -779,6 +789,7 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
 
     existingDriver.lastLogin = new Date();
     await existingDriver.save();
+    await storeLoginFcm(Driver, existingDriver._id, req.body);
     return sendTokenResponse(existingDriver, 200, res, 'driver');
   } catch (error) {
     console.error('Verify driver OTP error:', error);
@@ -908,6 +919,29 @@ const logout = async (req, res, next) => {
   }
 };
 
+// @desc    Save / remove FCM token for logged-in user or driver
+// @route   POST|DELETE /api/auth/fcm-token, /api/auth/driver/fcm-token  body: { token, platform: 'web'|'mobile' }
+// @access  Private
+const saveFcm = async (req, res, next) => {
+  try {
+    const Model = req.driver ? Driver : User;
+    const ok = await saveFcmToken(Model, (req.driver || req.user)._id, req.body.token, fcmPlatform(req.body.platform));
+    if (!ok) return res.status(400).json({ success: false, error: { message: 'Valid FCM token is required', statusCode: 400 } });
+    res.status(200).json({ success: true, message: 'FCM token saved' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteFcm = async (req, res, next) => {
+  try {
+    if (typeof req.body.token === 'string') await removeFcmToken(req.driver ? Driver : User, (req.driver || req.user)._id, req.body.token);
+    res.status(200).json({ success: true, message: 'FCM token removed' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Get current logged in user
 // @route   GET /api/auth/me
 // @access  Private
@@ -937,6 +971,8 @@ const getMe = async (req, res, next) => {
 };
 
 module.exports = {
+  saveFcm,
+  deleteFcm,
   sendOTPForAuth,
   verifyOTPAndProceed,
   registerUser,

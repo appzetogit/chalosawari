@@ -72,8 +72,12 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS: in production only FRONTEND_URL (comma-separated list) may call the API
-const allowedOrigins = (process.env.FRONTEND_URL || '').split(',').map(o => o.trim()).filter(Boolean);
+// CORS: in production only the live domain + FRONTEND_URL (comma-separated list) may call the API
+const allowedOrigins = [
+  'https://chalosawari.com',
+  'https://www.chalosawari.com',
+  ...(process.env.FRONTEND_URL || '').split(',').map(o => o.trim().replace(/\/$/, '')).filter(Boolean)
+];
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? allowedOrigins : true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

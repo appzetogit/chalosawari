@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import apiService from '@/services/api.js';
+import { registerFcmToken, unregisterFcmToken } from '@/lib/fcm';
 
 interface Driver {
   _id: string;
@@ -147,6 +148,11 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
     return Boolean(localStorage.getItem('driverToken'));
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  // Store FCM token after login / register / session restore
+  useEffect(() => {
+    if (isLoggedIn && driver?._id) registerFcmToken('driver');
+  }, [isLoggedIn, driver?._id]);
 
   const refreshDriverData = useCallback(async () => {
     try {
@@ -351,6 +357,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
   };
 
   const logout = () => {
+    unregisterFcmToken('driver');
     try {
       console.log('Logging out driver');
       // Clear driver data first

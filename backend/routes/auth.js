@@ -10,7 +10,9 @@ const {
   verifyDriverOTPAndProceed,
   resendDriverOTP,
   logout,
-  getMe
+  getMe,
+  saveFcm,
+  deleteFcm
 } = require('../controllers/authController');
 const { protect, protectDriver, protectAdmin } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
@@ -171,5 +173,11 @@ router.post('/driver/resend-otp', otpSendLimiter, phoneValidation, validate, res
 // Protected routes
 router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
+
+// FCM push tokens
+router.post('/fcm-token', protect, saveFcm);
+router.delete('/fcm-token', protect, deleteFcm);
+router.post('/driver/fcm-token', protectDriver, saveFcm);
+router.delete('/driver/fcm-token', protectDriver, deleteFcm);
 
 module.exports = router;

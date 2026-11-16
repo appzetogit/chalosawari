@@ -121,6 +121,9 @@ const UserSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // FCM push tokens per platform (max 10 each, newest last)
+  fcmTokens: { type: [String], default: [], select: false },
+  fcmTokenMobile: { type: [String], default: [], select: false },
   totalBookings: {
     type: Number,
     default: 0
