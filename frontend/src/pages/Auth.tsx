@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  ArrowLeft, 
-  ArrowRight, 
-  Phone, 
-  User, 
-  Mail, 
-  ShieldCheck, 
-  Zap, 
-  CheckCircle2, 
-  Clock, 
+import {
+  ArrowLeft,
+  ArrowRight,
+  Phone,
+  User,
+  Mail,
+  ShieldCheck,
+  Zap,
+  CheckCircle2,
+  Clock,
   Sparkles,
   Edit2
 } from "lucide-react";
@@ -118,17 +118,17 @@ const Auth = () => {
     try {
       setIsLoading(true);
       const response = await apiService.sendOTP(phoneNumber, "auth");
-      
+
       if (response.success) {
         setIsNewUser(!!response.data?.isNewUser);
         try {
           window.history.pushState({ authStep: "otp" }, "");
-        } catch (_) {}
+        } catch (_) { }
         setStep("otp");
         setTimer(120);
         setCanResend(false);
         setOtp(["", "", "", "", "", ""]);
-        
+
         toast({
           title: "OTP Sent Successfully",
           description: `Verification code sent to ${countryCode} ${phoneNumber}`,
@@ -156,7 +156,7 @@ const Auth = () => {
   // Step 2: Handle OTP input typing and pasting
   const handleOtpChange = (index: number, value: string) => {
     const cleanVal = value.replace(/[^0-9]/g, "");
-    
+
     // If pasted multi-digit string
     if (cleanVal.length > 1) {
       const pasteValues = cleanVal.slice(0, 6).split("");
@@ -202,7 +202,7 @@ const Auth = () => {
     try {
       setIsLoading(true);
       const response = await login(phoneNumber, fullOtp);
-      
+
       if (response.success && response.token) {
         // Existing user - Logged in directly!
         toast({
@@ -274,7 +274,7 @@ const Auth = () => {
     try {
       setIsLoading(true);
       const fullOtp = otp.join("");
-      
+
       const payload = {
         firstName: profileData.firstName.trim(),
         lastName: profileData.lastName.trim(),
@@ -310,10 +310,10 @@ const Auth = () => {
       {/* Top Header with Logo & Helpline */}
       <header className="w-full bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-30">
         <Link to="/" className="flex items-center space-x-2">
-          <img 
-            src={busLogo} 
-            alt="Chalo Sawari" 
-            className="w-10 h-10 object-contain" 
+          <img
+            src={busLogo}
+            alt="Chalo Sawari"
+            className="w-10 h-10 object-contain"
           />
           <div className="flex flex-col leading-tight">
             <div className="flex items-baseline">
@@ -326,8 +326,8 @@ const Auth = () => {
 
         <div className="flex flex-col items-end">
           <span className="text-[11px] text-gray-500 font-medium">Helpline Number</span>
-          <a 
-            href="tel:+919171838260" 
+          <a
+            href="tel:+919171838260"
             className="flex items-center text-xs sm:text-sm font-semibold text-gray-800 hover:text-blue-600 transition-colors"
           >
             <Phone className="w-3.5 h-3.5 mr-1 text-blue-600 fill-blue-600" />
@@ -341,10 +341,10 @@ const Auth = () => {
         {/* Brand Center Logo */}
         <div className="text-center mb-5">
           <div className="flex justify-center mb-1">
-            <img 
-              src={busLogo} 
-              alt="Chalo Sawari Logo" 
-              className="w-44 h-32 sm:w-52 sm:h-38 object-contain filter drop-shadow-sm transition-transform hover:scale-105" 
+            <img
+              src={busLogo}
+              alt="Chalo Sawari Logo"
+              className="w-44 h-32 sm:w-52 sm:h-38 object-contain filter drop-shadow-sm transition-transform hover:scale-105"
             />
           </div>
           <p className="text-xs text-gray-500 font-medium tracking-wide">Travel with Confidence</p>
@@ -386,15 +386,6 @@ const Auth = () => {
                     className="border-0 shadow-none focus-visible:ring-0 text-base font-medium text-gray-900 placeholder:text-gray-400 h-12 px-3 tracking-wide"
                     maxLength={10}
                   />
-                  {phoneNumber.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setPhoneNumber("")}
-                      className="mr-3 text-xs text-gray-400 hover:text-gray-600 font-bold px-1.5 py-0.5 rounded-full hover:bg-gray-100"
-                    >
-                      ✕
-                    </button>
-                  )}
                 </div>
               </div>
               <p className="text-[11px] text-gray-400">
@@ -486,11 +477,10 @@ const Auth = () => {
                     value={digit}
                     onChange={(e) => handleOtpChange(index, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                    className={`w-11 h-12 sm:w-12 sm:h-13 text-center text-xl font-bold rounded-xl border transition-all outline-none ${
-                      digit
+                    className={`w-11 h-12 sm:w-12 sm:h-13 text-center text-xl font-bold rounded-xl border transition-all outline-none ${digit
                         ? "border-blue-600 bg-blue-50/40 text-blue-900 ring-2 ring-blue-100"
                         : "border-gray-300 bg-gray-50/50 text-gray-800 focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                    }`}
+                      }`}
                   />
                 ))}
               </div>
@@ -513,11 +503,10 @@ const Auth = () => {
                 type="button"
                 disabled={!canResend || isLoading}
                 onClick={handleResendOtp}
-                className={`font-semibold transition-colors ${
-                  canResend
+                className={`font-semibold transition-colors ${canResend
                     ? "text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                     : "text-gray-300 cursor-not-allowed"
-                }`}
+                  }`}
               >
                 Resend OTP
               </button>
@@ -643,11 +632,10 @@ const Auth = () => {
                     key={item.value}
                     type="button"
                     onClick={() => setProfileData({ ...profileData, gender: item.value })}
-                    className={`py-2 text-xs font-semibold rounded-xl border transition-all ${
-                      profileData.gender === item.value
+                    className={`py-2 text-xs font-semibold rounded-xl border transition-all ${profileData.gender === item.value
                         ? "bg-blue-600 text-white border-blue-600 shadow-sm"
                         : "bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200"
-                    }`}
+                      }`}
                   >
                     {item.label}
                   </button>

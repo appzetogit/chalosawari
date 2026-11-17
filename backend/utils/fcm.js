@@ -1,12 +1,14 @@
 const fs = require('fs');
-const { initializeApp, cert } = require('firebase-admin/app');
-const { getMessaging } = require('firebase-admin/messaging');
+// Loaded inside try below: firebase-admin needs Node >=22; a load failure must not crash the API
+let getMessaging;
 
 const MAX_TOKENS = 10;
 const FIELD = { web: 'fcmTokens', mobile: 'fcmTokenMobile' };
 
 let ready = false;
 try {
+  const { initializeApp, cert } = require('firebase-admin/app');
+  ({ getMessaging } = require('firebase-admin/messaging'));
   // Relative paths resolve from backend/, so the same .env value works on Windows and the server
   const envPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   const path = envPath && require('path').resolve(__dirname, '..', envPath);
