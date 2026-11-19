@@ -110,7 +110,8 @@ const HeroSection = () => {
       {loading && <LoadingAnimation />}
 
       {/* App header */}
-      <header className="px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-5 bg-white border-b border-slate-100">
+      {/* pt-4 only: native wrapper already offsets the WebView below the status bar; env(safe-area-inset-top) double-counted it */}
+      <header className="px-5 pt-4 pb-5 bg-white border-b border-slate-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img src={busLogo} alt="Chalo Sawari" className="w-10 h-10 object-contain" />

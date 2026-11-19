@@ -48,7 +48,8 @@ const DriverBottomNavigation = () => {
       className="fixed bottom-0 inset-x-0 mx-auto w-full max-w-[480px] bg-white/95 backdrop-blur-md border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-[100]"
       style={{ zIndex: 100 }}
     >
-      <div className="w-full px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0.5rem))]">
+      {/* pb-2 only: native wrapper already keeps the WebView above the system nav bar; env(safe-area-inset-bottom) double-counted it */}
+      <div className="w-full px-2 pt-1.5 pb-2">
         <nav className="flex items-center justify-around">
           {navigationItems.map((item) => {
             const Icon = item.icon;
