@@ -24,8 +24,9 @@ const MobileAuthWrapper: React.FC<MobileAuthWrapperProps> = ({ children }) => {
     );
   }
 
-  // Driver app WebView landing on a user page (e.g. native reload to base URL) → back to driver dashboard
-  if (!isAuthenticated && localStorage.getItem('driverToken')) {
+  // Driver app WebView landing on a user page (e.g. native reload to base URL) → back to driver dashboard.
+  // Driver session wins even if a user token also sits in this storage (stale/shared localStorage).
+  if (localStorage.getItem('driverToken')) {
     return <Navigate to="/driver" replace />;
   }
 

@@ -450,6 +450,9 @@ BookingSchema.pre('save', async function(next) {
       
       console.log(`🚗 Vehicle ${vehicle._id} status updated to: ${vehicle.bookingStatus}, booked: ${vehicle.booked}`);
       
+      // Read by the post('save') push hook below
+      this.$locals.push = { isNew: this.isNew, actor: this._updatedByModel || 'User' };
+
       // Clear temporary fields
       delete this._updatedByModel;
       delete this._updatedBy;
@@ -462,6 +465,59 @@ BookingSchema.pre('save', async function(next) {
     }
   }
   next();
+});
+
+// ---- Push notifications on every status change (all controllers save through here) ----
+BookingSchema.post('init', function() {
+  this.$locals.prevStatus = this.status;
+});
+
+const short = (addr = '') => addr.split(',')[0].trim();
+
+// Returns { user?: {title, body}, driver?: {title, body} } for this status change
+const bookingPushes = (b, { isNew, actor }, prevStatus) => {
+  const no = b.bookingNumber;
+  const route = `${short(b.tripDetails?.pickup?.address)} → ${short(b.tripDetails?.destination?.address)}`;
+  if (isNew) return {
+    driver: { title: 'New booking arrived', body: `${no} · ${route} · ${b.tripDetails?.date} ${b.tripDetails?.time}` },
+    user: { title: 'Booking placed', body: `${no} is waiting for the driver to accept` }
+  };
+  if (prevStatus === 'cancellation_requested' && b.status !== 'cancelled') return {
+    user: { title: 'Cancellation rejected', body: `Your cancellation request for ${no} was rejected` },
+    driver: { title: 'Cancellation rejected', body: `${no} is still on: ${route}` }
+  };
+  switch (b.status) {
+    case 'accepted': return { user: { title: 'Booking accepted', body: `Your driver accepted ${no}` } };
+    case 'started': return { user: { title: 'Trip started', body: `${no} has started. Have a safe journey!` } };
+    case 'completed': return {
+      user: { title: 'Trip completed', body: `${no} is complete. Rate your ride!` },
+      driver: { title: 'Trip completed', body: `${no} completed · ₹${b.trip?.actualFare ?? b.pricing?.totalAmount}` }
+    };
+    case 'cancellation_requested': return { driver: { title: 'Cancellation requested', body: `Passenger asked to cancel ${no}` } };
+    case 'cancelled': {
+      const user = { title: 'Booking cancelled', body: `${no} was cancelled. Your refund will be processed.` };
+      if (actor === 'User') return { driver: { title: 'Booking cancelled', body: `Passenger cancelled ${no}` } };
+      if (actor === 'Driver') return { user: { ...user, body: `Driver cancelled ${no}. Your refund will be processed.` } };
+      return { user, driver: { title: 'Booking cancelled', body: `${no} was cancelled by admin` } };
+    }
+    default: return {};
+  }
+};
+
+BookingSchema.statics.pushesFor = bookingPushes; // exposed for checks
+
+BookingSchema.post('save', function(doc) {
+  const info = doc.$locals.push;
+  const prevStatus = doc.$locals.prevStatus;
+  doc.$locals.prevStatus = doc.status; // a later save on the same doc compares against this one
+  if (!info) return;
+  delete doc.$locals.push;
+  const { sendPushToDoc } = require('../utils/fcm');
+  const data = { type: `booking_${doc.status}`, bookingId: doc._id, bookingNumber: doc.bookingNumber };
+  const msgs = bookingPushes(doc, info, prevStatus);
+  // Fire-and-forget: a push failure must never fail the booking API
+  if (msgs.user) sendPushToDoc(mongoose.model('User'), doc.user, { ...msgs.user, data }).catch((e) => console.error('Booking push (user) failed:', e.message));
+  if (msgs.driver) sendPushToDoc(mongoose.model('Driver'), doc.driver, { ...msgs.driver, data }).catch((e) => console.error('Booking push (driver) failed:', e.message));
 });
 
 module.exports = mongoose.model('Booking', BookingSchema);
