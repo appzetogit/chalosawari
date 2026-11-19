@@ -306,7 +306,8 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col justify-between font-sans">
+    // fixed: pinned to the viewport so the page itself can't be dragged (body has safe-area padding); scrolls inside only if content is taller
+    <div className="fixed inset-0 mx-auto w-full max-w-[480px] overflow-y-auto overscroll-none bg-white flex flex-col justify-between font-sans pb-[env(safe-area-inset-bottom)]">
       {/* Top Header with Logo & Helpline */}
       <header className="w-full bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-30">
         <Link to="/" className="flex items-center space-x-2">
@@ -666,7 +667,7 @@ const Auth = () => {
       </main>
 
       {/* Clean Bottom Footer */}
-      <footer className="py-4 px-4 text-center space-y-2 bg-white">
+      <footer className="pt-3 pb-8 px-4 text-center space-y-2 bg-white">
         <p className="text-xs text-gray-500">
           By continuing, I agree to{" "}
           <Link to="/terms-conditions" className="text-blue-600 hover:underline font-medium">

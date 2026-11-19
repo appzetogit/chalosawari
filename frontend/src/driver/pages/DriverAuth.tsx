@@ -303,7 +303,8 @@ const DriverAuth = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col justify-between font-sans">
+    // fixed: pinned to the viewport so the page itself can't be dragged (body has safe-area padding); scrolls inside only if content is taller
+    <div className="fixed inset-0 mx-auto w-full max-w-[480px] overflow-y-auto overscroll-none bg-white flex flex-col justify-between font-sans pb-[env(safe-area-inset-bottom)]">
       {/* Top Mobile App Header */}
       <header className="w-full bg-white border-b border-gray-100 px-4 py-3 flex justify-between items-center sticky top-0 z-30 shadow-2xs">
         <Link to="/driver" className="flex items-center space-x-2">
