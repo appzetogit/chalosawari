@@ -639,7 +639,7 @@ const DriverAuth = () => {
       </main>
 
       {/* Bottom Footer Note */}
-      <footer className="px-4 py-4 text-center text-[11px] text-gray-400 border-t border-gray-100 bg-white">
+      <footer className="px-4 pt-5 pb-2 text-center text-[11px] text-gray-400 border-t border-gray-100 bg-white">
         <p>
           By continuing, you agree to Chalo Sawari{" "}
           <Link to="/driver/terms-conditions" className="text-blue-600 hover:underline font-medium">
