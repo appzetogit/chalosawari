@@ -7,7 +7,8 @@ const { sendOTP } = require('../utils/notifications');
 const crypto = require('crypto');
 const { saveFcmToken, removeFcmToken } = require('../utils/fcm');
 
-const fcmPlatform = (p) => (p === 'mobile' ? 'mobile' : 'web');
+// Only our web frontend sends platform 'web' (src/lib/fcm.ts); native apps may send 'mobile', 'android', or nothing
+const fcmPlatform = (p) => (String(p).toLowerCase() === 'web' ? 'web' : 'mobile');
 
 // Optional fcmToken/platform sent with verify-otp (native apps) — never blocks login
 const storeLoginFcm = (Model, id, body) =>
@@ -401,6 +402,7 @@ const registerUser = async (req, res, next) => {
     }
 
     console.log(`🎉 New user registered successfully: ${normalizedPhone}`);
+    await storeLoginFcm(User, newUser._id, req.body);
     return sendTokenResponse(newUser, 201, res, 'user');
   } catch (error) {
     console.error('Register user error:', error);

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Chalo Sawari - Bus, Car & Auto-Ricksaw Booking</title>
     <link rel="icon" type="image/png" href="/src/assets/BusLogo.png" />
     <meta name="description" content="Chalo Sawari - Your trusted online cab booking aggregator for bus, car and auto rental services. Providing customers with reliable and premium intercity and local transportation solutions. Book with confidence for all your travel needs." />
@@ -70,6 +70,10 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      // iOS Safari ignores user-scalable=no; block pinch zoom
+      document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

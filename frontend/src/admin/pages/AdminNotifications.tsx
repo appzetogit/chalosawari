@@ -226,7 +226,7 @@ const AdminNotifications: React.FC = () => {
                 <Label className="text-sm font-semibold text-slate-900">
                   Send To / Target Audience <span className="text-red-500">*</span>
                 </Label>
-                <div className="grid grid-cols-3 gap-2.5 max-w-sm sm:max-w-md">
+                <div className="grid grid-cols-2 gap-2.5 max-w-xs sm:max-w-sm">
                   {/* User Option */}
                   <button
                     type="button"
@@ -273,30 +273,6 @@ const AdminNotifications: React.FC = () => {
                       <Car className="w-3.5 h-3.5" />
                     </div>
                     <span className="text-xs font-semibold">Driver</span>
-                  </button>
-
-                  {/* Both (All) Option */}
-                  <button
-                    type="button"
-                    onClick={() => setTargetAudience("all")}
-                    className={cn(
-                      "flex items-center justify-center gap-2 py-2 px-3 rounded-xl border text-center transition-all cursor-pointer",
-                      targetAudience === "all"
-                        ? "border-purple-600 bg-purple-50/90 text-purple-900 font-semibold ring-2 ring-purple-500/20 shadow-xs"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
-                        targetAudience === "all"
-                          ? "bg-purple-600 text-white"
-                          : "bg-purple-100 text-purple-700"
-                      )}
-                    >
-                      <Bell className="w-3.5 h-3.5" />
-                    </div>
-                    <span className="text-xs font-semibold">Both</span>
                   </button>
                 </div>
               </div>

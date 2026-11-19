@@ -41,7 +41,7 @@ const UserBottomNavigation = () => {
 
   return (
     <div
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-white/95 backdrop-blur-md border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-[100]"
+      className="fixed bottom-0 inset-x-0 mx-auto w-full max-w-[480px] bg-white/95 backdrop-blur-md border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-[100]"
       style={{ zIndex: 100 }}
     >
       {/* Native App Bottom Bar Container */}
@@ -56,9 +56,9 @@ const UserBottomNavigation = () => {
                 key={item.href}
                 to={item.href}
                 className={cn(
-                  "relative flex flex-col items-center justify-center py-1.5 px-2 min-w-0 flex-1 rounded-xl transition-all duration-200 active:scale-95 select-none",
+                  "relative flex flex-col items-center justify-center py-1.5 px-2 min-w-0 flex-1 rounded-xl transition-colors select-none [-webkit-tap-highlight-color:transparent]",
                   active
-                    ? "text-blue-600 font-semibold"
+                    ? "text-blue-600"
                     : "text-gray-500 hover:text-gray-800"
                 )}
               >
@@ -67,14 +67,14 @@ const UserBottomNavigation = () => {
                   active && "bg-blue-100/80"
                 )}>
                   <Icon className={cn(
-                    "w-5 h-5 transition-transform duration-200",
-                    active ? "stroke-[2.25] scale-105 text-blue-600" : "stroke-[1.75] text-gray-500"
+                    "w-5 h-5",
+                    active ? "stroke-[2.25] text-blue-600" : "stroke-[1.75] text-gray-500"
                   )} />
                 </div>
 
                 <span className={cn(
-                  "text-[11px] mt-0.5 tracking-tight font-medium transition-all duration-200 relative",
-                  active ? "text-blue-600 font-bold" : "text-gray-500"
+                  "text-[11px] mt-0.5 tracking-tight font-semibold relative",
+                  active ? "text-blue-600" : "text-gray-500"
                 )}>
                   {item.title}
                 </span>

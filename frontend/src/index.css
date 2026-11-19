@@ -90,6 +90,19 @@ All colors MUST be HSL.
     scrollbar-width: none;     /* Firefox */
   }
   
+  /* No pinch / double-tap zoom anywhere (user + driver) */
+  html, body {
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* iOS zooms on focus when input text < 16px */
+  @media (max-width: 768px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+  }
+
   /* Hide scrollbars for all elements */
   html, body, div, section, main, nav, header, footer {
     -ms-overflow-style: none;  /* Internet Explorer 10+ */
