@@ -12,7 +12,8 @@ const {
   logout,
   getMe,
   saveFcm,
-  deleteFcm
+  deleteFcm,
+  refreshAuthToken
 } = require('../controllers/authController');
 const { protect, protectDriver, protectAdmin } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
@@ -168,6 +169,9 @@ router.post('/resend-otp', otpSendLimiter, phoneValidation, validate, resendOTP)
 router.post('/driver/send-otp', otpSendLimiter, phoneValidation, validate, sendDriverOTP);
 router.post('/driver/verify-otp', otpVerifyLimiter, otpValidation, validate, verifyDriverOTPAndProceed);
 router.post('/driver/resend-otp', otpSendLimiter, phoneValidation, validate, resendDriverOTP);
+
+// User + driver: refresh token → new access token
+router.post('/refresh-token', refreshAuthToken);
 
 
 // Protected routes

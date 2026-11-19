@@ -21,6 +21,11 @@ const generateToken = (id, role = 'user') => {
   });
 };
 
+// Separate secret so a refresh token never passes as an access token (and vice versa)
+const refreshSecret = () => process.env.JWT_REFRESH_SECRET || `${process.env.JWT_SECRET}:refresh`;
+const generateRefreshToken = (id, role) =>
+  jwt.sign({ id, role, type: 'refresh' }, refreshSecret(), { expiresIn: process.env.JWT_REFRESH_EXPIRE || '30d' });
+
 // Fixed OTPs for test accounts (User & Driver). Override with TEST_OTP_MAP="9999999999:123456,8888888888:654321"; TEST_OTP_MAP="" disables
 const DEFAULT_OTP_MAP = Object.fromEntries(
   (process.env.TEST_OTP_MAP ?? '7610416911:123456').split(',').map(p => p.trim().split(':')).filter(p => p.length === 2)
@@ -49,6 +54,7 @@ const sendTokenResponse = (user, statusCode, res, role = 'user') => {
   res.status(statusCode).json({
     success: true,
     token,
+    refreshToken: generateRefreshToken(user._id, role),
     user: {
       id: user._id,
       firstName: user.firstName,
@@ -972,7 +978,32 @@ const getMe = async (req, res, next) => {
   }
 };
 
+// @desc    Swap a refresh token for a new access + refresh token (rotation)
+// @route   POST /api/auth/refresh-token
+// @access  Public
+// ponytail: stateless — logout doesn't revoke an issued refresh token; add a tokenVersion field on User/Driver if forced logout is needed
+const refreshAuthToken = async (req, res, next) => {
+  const fail = () => res.status(401).json({ success: false, error: { message: 'Session expired. Please login again.', statusCode: 401 } });
+  let payload;
+  try {
+    payload = jwt.verify(String(req.body?.refreshToken || ''), refreshSecret());
+  } catch {
+    return fail();
+  }
+  const Model = { user: User, driver: Driver }[payload.role];
+  if (payload.type !== 'refresh' || !Model) return fail();
+  try {
+    const doc = await Model.findById(payload.id);
+    // Same checks as protect / protectDriver
+    if (!doc || !doc.isActive || (payload.role === 'driver' && !doc.isVerified)) return fail();
+    return sendTokenResponse(doc, 200, res, payload.role);
+  } catch (error) {
+    next(error); // DB error → 500, not 401, so the client keeps its session
+  }
+};
+
 module.exports = {
+  refreshAuthToken,
   saveFcm,
   deleteFcm,
   sendOTPForAuth,

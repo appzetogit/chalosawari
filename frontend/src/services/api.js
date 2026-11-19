@@ -8,6 +8,10 @@ const resolveApiBaseUrl = () => {
 };
 const API_BASE_URL = resolveApiBaseUrl();
 
+// localStorage key per role; the refresh token sits under `${key}Refresh`
+const TOKEN_KEY = { user: 'token', driver: 'driverToken', admin: 'adminToken' };
+const tokenKey = (role) => TOKEN_KEY[role] || 'token';
+
 class ApiService {
   constructor() {
     this.baseURL = resolveApiBaseUrl();
@@ -16,6 +20,7 @@ class ApiService {
       driver: null,
       admin: null
     };
+    this.refreshing = {};
     this.requestQueue = [];
     this.isProcessing = false;
     this.lastRequestTime = 0;
@@ -46,46 +51,43 @@ class ApiService {
 
   // Get auth token from localStorage
   getAuthToken(role = 'user') {
-    const token = (() => {
-      switch (role) {
-        case 'driver':
-          return localStorage.getItem('driverToken');
-        case 'admin':
-          return localStorage.getItem('adminToken');
-        default:
-          return localStorage.getItem('token');
-      }
-    })();
-    
-    return token;
+    return localStorage.getItem(tokenKey(role));
   }
 
-  // Set auth token in localStorage
-  setAuthToken(token, role = 'user') {
-    switch (role) {
-      case 'driver':
-        localStorage.setItem('driverToken', token);
-        break;
-      case 'admin':
-        localStorage.setItem('adminToken', token);
-        break;
-      default:
-        localStorage.setItem('token', token);
-    }
+  storeTokens(role, token, refreshToken) {
+    localStorage.setItem(tokenKey(role), token);
+    if (refreshToken) localStorage.setItem(`${tokenKey(role)}Refresh`, refreshToken);
   }
 
-  // Remove auth token from localStorage
+  // Called on login
+  setAuthToken(token, role = 'user', refreshToken) {
+    this.storeTokens(role, token, refreshToken);
+  }
+
+  // Remove auth + refresh token from localStorage
   removeAuthToken(role = 'user') {
-    switch (role) {
-      case 'driver':
-        localStorage.removeItem('driverToken');
-        break;
-      case 'admin':
-        localStorage.removeItem('adminToken');
-        break;
-      default:
-        localStorage.removeItem('token');
-    }
+    localStorage.removeItem(tokenKey(role));
+    localStorage.removeItem(`${tokenKey(role)}Refresh`);
+  }
+
+  // Swap the stored refresh token for new tokens. true = refreshed, false = none/rejected (log out).
+  // Network/5xx errors throw instead, so a server restart (deploy) doesn't log anyone out.
+  // Parallel 401s share one refresh call per role.
+  refreshAuth(role) {
+    const refreshToken = localStorage.getItem(`${tokenKey(role)}Refresh`);
+    if (!refreshToken) return Promise.resolve(false);
+    this.refreshing[role] ??= fetch(`${this.baseURL}/auth/refresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    }).then(async (res) => {
+      if (res.status === 401) return false;
+      if (!res.ok) throw new Error(`Token refresh failed: HTTP ${res.status}`);
+      const data = await res.json();
+      this.storeTokens(role, data.token, data.refreshToken);
+      return true;
+    }).finally(() => { delete this.refreshing[role]; });
+    return this.refreshing[role];
   }
 
   // Get headers for API requests
@@ -109,7 +111,7 @@ class ApiService {
   }
 
   // Make API request with retry mechanism
-  async request(endpoint, options = {}, role = 'user', retryCount = 0) {
+  async request(endpoint, options = {}, role = 'user', retryCount = 0, refreshed = false) {
     try {
       // Apply throttling to prevent rate limiting
       await this.throttleRequest();
@@ -141,20 +143,20 @@ class ApiService {
         
         // Handle authentication errors (but not for public endpoints)
         if (response.status === 401 && role !== 'public') {
-          this.removeAuthToken(role);
-          
-          // Only redirect if we're not already on an auth page to prevent loops
-          if (!this.isOnAuthPage()) {
-            // Redirect based on role
-            if (role === 'driver') {
-              window.location.href = '/driver-auth';
-            } else if (role === 'admin') {
-              window.location.href = '/admin-auth';
-            } else {
-              window.location.href = '/auth';
-            }
+          // Access token expired → refresh once and retry
+          if (!refreshed && await this.refreshAuth(role)) {
+            return this.request(endpoint, options, role, retryCount, true);
           }
-          
+          this.removeAuthToken(role);
+
+          // Redirect only inside that role's own pages: a stale user token on /driver must not
+          // throw the driver onto the user login (and vice versa). Skip on auth pages to prevent loops.
+          const path = window.location.pathname;
+          const area = path.startsWith('/driver') ? 'driver' : path.startsWith('/admin') ? 'admin' : 'user';
+          if (area === role && !this.isOnAuthPage()) {
+            window.location.href = { driver: '/driver-auth', admin: '/admin-auth', user: '/auth' }[role];
+          }
+
           throw new Error('Authentication failed. Please login again.');
         }
 

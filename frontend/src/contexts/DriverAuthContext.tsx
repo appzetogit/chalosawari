@@ -123,6 +123,11 @@ interface DriverAuthContextType {
 
 const DriverAuthContext = createContext<DriverAuthContextType | undefined>(undefined);
 
+// Once a driver has logged in on this device it stays a driver device, even after logout:
+// user-only pages bounce to /driver (see UserAppLayout). Reset = clear site data.
+export const isDriverDevice = () =>
+  localStorage.getItem('appSide') === 'driver' || Boolean(localStorage.getItem('driverToken'));
+
 export const useDriverAuth = () => {
   const context = useContext(DriverAuthContext);
   if (context === undefined) {
@@ -153,6 +158,11 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
   useEffect(() => {
     if (isLoggedIn && driver?._id) registerFcmToken('driver');
   }, [isLoggedIn, driver?._id]);
+
+  // Login, register or session restore → mark as driver device (sticky, logout doesn't clear it)
+  useEffect(() => {
+    if (isLoggedIn) localStorage.setItem('appSide', 'driver');
+  }, [isLoggedIn]);
 
   const refreshDriverData = useCallback(async () => {
     try {
@@ -227,7 +237,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       console.log('Driver login response:', response);
       
       if (response.success && response.token) {
-        apiService.setAuthToken(response.token, 'driver');
+        apiService.setAuthToken(response.token, 'driver', response.refreshToken);
         localStorage.setItem('isDriverLoggedIn', 'true');
         localStorage.setItem('driverPhone', phoneNumber);
         
@@ -273,7 +283,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       });
 
       if (response.success && response.token) {
-        apiService.setAuthToken(response.token, 'driver');
+        apiService.setAuthToken(response.token, 'driver', response.refreshToken);
         localStorage.setItem('isDriverLoggedIn', 'true');
         localStorage.setItem('driverPhone', phoneNumber);
         
@@ -326,7 +336,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       
       if (response.success) {
         if (response.token) {
-          apiService.setAuthToken(response.token, 'driver');
+          apiService.setAuthToken(response.token, 'driver', response.refreshToken);
           localStorage.setItem('isDriverLoggedIn', 'true');
           localStorage.setItem('driverPhone', phoneNumber);
           await refreshDriverData();

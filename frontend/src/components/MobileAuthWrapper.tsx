@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useUserAuth } from '@/contexts/UserAuthContext';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { isDriverDevice } from '@/contexts/DriverAuthContext';
 
 interface MobileAuthWrapperProps {
   children: React.ReactNode;
@@ -24,10 +25,9 @@ const MobileAuthWrapper: React.FC<MobileAuthWrapperProps> = ({ children }) => {
     );
   }
 
-  // Driver app WebView landing on a user page (e.g. native reload to base URL) → back to driver dashboard.
-  // Driver session wins even if a user token also sits in this storage (stale/shared localStorage).
-  if (localStorage.getItem('driverToken')) {
-    return <Navigate to="/driver" replace />;
+  // Driver device: UserAppLayout already bounced user-only pages; what's left is shared (/help) → no user login
+  if (isDriverDevice()) {
+    return <>{children}</>;
   }
 
   // If user is on mobile and not authenticated, redirect to login

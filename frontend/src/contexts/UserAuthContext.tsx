@@ -92,8 +92,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
         }
       } catch (error) {
         console.error('Auth check failed:', error);
-        // Clear invalid tokens and user data
-        apiService.removeAuthToken();
+        // Keep the token: api.js already clears it on a real 401; a network/5xx error (deploy restart) must not log out
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -118,7 +117,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
       if (response.success && response.token) {
         console.log('Login successful, setting token and user');
         // Set token first
-        apiService.setAuthToken(response.token);
+        apiService.setAuthToken(response.token, 'user', response.refreshToken);
         
         // Fetch complete user profile data
         try {
@@ -158,7 +157,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
       const response = await apiService.registerUser(userData);
       
       if (response.success && response.token) {
-        apiService.setAuthToken(response.token);
+        apiService.setAuthToken(response.token, 'user', response.refreshToken);
         try {
           const profileResponse = await apiService.getUserProfile();
           if (profileResponse.success) {
@@ -263,8 +262,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
       }
     } catch (error) {
       console.error('Profile refresh error:', error);
-      // If refresh fails, clear the invalid token and user data
-      apiService.removeAuthToken();
+      // Token is cleared by api.js only on a real 401 (after a failed refresh), not on network errors
       setUser(null);
       throw error;
     }
