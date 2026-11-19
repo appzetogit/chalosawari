@@ -121,6 +121,7 @@ interface CarListProps {
     serviceType?: string;
     returnDate?: string;
     passengers?: number;
+    distanceKm?: number; // road distance from the search page
   };
   filters?: VehicleFilters;
   onFiltersChange?: (filters: VehicleFilters) => void;
@@ -525,7 +526,7 @@ const CarList: React.FC<CarListProps> = ({ searchParams, filters, onFiltersChang
         <div className="text-gray-900 font-bold text-sm mb-1">{error}</div>
         <p className="text-xs text-gray-500 mb-4">Please check your connection or try again.</p>
         <button
-          onClick={fetchCars}
+          onClick={() => fetchCars()}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors inline-flex items-center gap-1.5"
         >
           <RotateCcw className="w-3.5 h-3.5" />
@@ -657,6 +658,7 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
     serviceType?: string;
     returnDate?: string;
     passengers?: number;
+    distanceKm?: number; // road distance from the search page
   };
   onViewDetails: (car: Car) => void;
   onBookNow: (car: Car) => void;

@@ -89,26 +89,37 @@ const DriverRequests = () => {
   // Booking whose "Complete Trip" was tapped and now shows the cash collection step
   const [collectingCashFor, setCollectingCashFor] = useState<string | null>(null);
 
+  // New requests show up without a reload: poll every 30s while visible, and refresh when the app returns
   useEffect(() => {
-    if (isLoggedIn) {
-      fetchDriverBookings();
-    }
+    if (!isLoggedIn) return;
+    fetchDriverBookings();
+    const tick = () => document.visibilityState === 'visible' && fetchDriverBookings(true);
+    const id = setInterval(tick, 30000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
   }, [isLoggedIn]);
 
-  const fetchDriverBookings = async () => {
+  // background = silent refresh (no spinner, no error toast)
+  const fetchDriverBookings = async (background = false) => {
     try {
-      setLoading(true);
-      const data = await apiService.getDriverBookings();
+      if (!background) setLoading(true);
+      // ponytail: latest 50 bookings, no paging UI
+      const data = await apiService.getDriverBookings(null, 1, 50);
       setBookings(data?.data?.docs || []);
     } catch (error) {
       console.error('Error fetching bookings:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch booking requests",
-        variant: "destructive",
-      });
+      if (!background) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to fetch booking requests",
+          variant: "destructive",
+        });
+      }
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   };
 
@@ -133,7 +144,7 @@ const DriverRequests = () => {
       });
 
       // Refresh bookings to get updated data
-      fetchDriverBookings();
+      fetchDriverBookings(true);
     } catch (error) {
       console.error('Error updating booking status:', error);
       toast({
@@ -174,7 +185,7 @@ const DriverRequests = () => {
       });
 
       // Refresh bookings to get updated data
-      fetchDriverBookings();
+      fetchDriverBookings(true);
     } catch (error) {
       console.error('Error collecting cash payment:', error);
       toast({

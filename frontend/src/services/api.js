@@ -21,23 +21,6 @@ class ApiService {
       admin: null
     };
     this.refreshing = {};
-    this.requestQueue = [];
-    this.isProcessing = false;
-    this.lastRequestTime = 0;
-    this.minRequestInterval = 100; // Minimum 100ms between requests
-  }
-
-  // Throttle requests to prevent rate limiting
-  async throttleRequest() {
-    const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
-    
-    if (timeSinceLastRequest < this.minRequestInterval) {
-      const delay = this.minRequestInterval - timeSinceLastRequest;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    
-    this.lastRequestTime = Date.now();
   }
 
   // Check if we're currently on an auth page to prevent redirect loops
@@ -113,8 +96,6 @@ class ApiService {
   // Make API request with retry mechanism
   async request(endpoint, options = {}, role = 'user', retryCount = 0, refreshed = false) {
     try {
-      // Apply throttling to prevent rate limiting
-      await this.throttleRequest();
       
       const isFormData = options.body instanceof FormData;
       const defaultHeaders = this.getHeaders(role, isFormData);
@@ -131,16 +112,12 @@ class ApiService {
       };
 
       const response = await fetch(url, config);
-      let data = await response.json();
+      // nginx returns an HTML page on 502/504 (e.g. during a deploy): don't surface "Unexpected token <"
+      let data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        // Handle rate limiting with retry
-        if (response.status === 429 && retryCount < 3) {
-          const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
-          await new Promise(resolve => setTimeout(resolve, delay));
-          return this.request(endpoint, options, role, retryCount + 1);
-        }
-        
+        // 429 is not retried: retrying only burns more of the limit (OTP limiter counts every hit)
+
         // Handle authentication errors (but not for public endpoints)
         if (response.status === 401 && role !== 'public') {
           // Access token expired → refresh once and retry
@@ -160,7 +137,12 @@ class ApiService {
           throw new Error('Authentication failed. Please login again.');
         }
 
-        throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+        // Backend sends either { error: { message } } or { message }
+        const fallback = response.status >= 500 ? 'Server is busy, please try again in a moment.' : `Request failed (${response.status})`;
+        const err = new Error(data.error?.message || (typeof data.error === 'string' && data.error) || data.message || fallback);
+        err.status = response.status;
+        err.data = data;
+        throw err;
       }
 
       if (data) {
@@ -187,13 +169,6 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ phone, purpose }),
     }, 'public');
-  }
-
-  async loginUser(credentials) {
-    return this.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
   }
 
   async verifyOTP(phone, otp, purpose = 'auth', userData = null) {
@@ -224,21 +199,6 @@ class ApiService {
     }
   }
 
-  // Driver APIs
-  async registerDriver(driverData) {
-    return this.request('/auth/driver/register', {
-      method: 'POST',
-      body: JSON.stringify(driverData),
-    });
-  }
-
-  async loginDriver(credentials) {
-    return this.request('/auth/driver/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
-  }
-
   // Driver OTP APIs (Public endpoints - no authentication required)
   async sendDriverOTP(phone, purpose = 'signup') {
     return this.request('/auth/driver/send-otp', {
@@ -259,14 +219,6 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ phone, purpose }),
     }, 'public');
-  }
-
-  // Admin APIs
-  async loginAdmin(credentials) {
-    return this.request('/auth/admin/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
   }
 
   // User Profile APIs
@@ -341,13 +293,6 @@ class ApiService {
 
   async getBookingReceipt(bookingId) {
     return this.request(`/bookings/${bookingId}/receipt`);
-  }
-
-  async cancelBooking(bookingId, reason) {
-    return this.request(`/bookings/${bookingId}/cancel`, {
-      method: 'PUT',
-      body: JSON.stringify({ reason }),
-    });
   }
 
   async rateBooking(bookingId, stars, review = '') {

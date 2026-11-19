@@ -1,3 +1,4 @@
+import apiService from './api';
 
 declare global {
   interface Window {
@@ -70,136 +71,30 @@ class RazorpayService {
     });
   }
 
-  /**
-   * Create Razorpay order
-   */
+  // Both calls go through apiService so an expired access token is refreshed (a 401 here used to strand a paid user)
   async createOrder(orderData: RazorpayOrderData): Promise<any> {
-    try {
-      console.log('=== CREATING RAZORPAY ORDER ===');
-      console.log('Order data:', orderData);
-      console.log('API URL:', `${this.apiBaseUrl}/payments/create-order`);
-      
-      const token = localStorage.getItem('token') || 
-                   localStorage.getItem('userToken') || 
-                   localStorage.getItem('authToken');
-      
-      if (!token) {
-        throw new Error('Authentication token not found');
-      }
-
-      console.log('Token available:', !!token);
-
-      const response = await fetch(`${this.apiBaseUrl}/payments/create-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(orderData)
-      });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Order creation failed - Response:', errorData);
-        console.error('Full error details:', {
-          status: response.status,
-          statusText: response.statusText,
-          url: response.url,
-          body: orderData
-        });
-        throw new Error(errorData.error?.message || errorData.message || 'Failed to create order');
-      }
-
-      const data = await response.json();
-      console.log('Order created successfully:', data);
-      console.log('=== ORDER CREATION SUCCESS ===');
-      return data.data;
-    } catch (error) {
-      console.error('=== ORDER CREATION FAILED ===');
-      console.error('Failed to create order:', error);
-      throw error;
-    }
+    const res = await apiService.request('/payments/create-order', { method: 'POST', body: JSON.stringify(orderData) }, 'user');
+    return res.data;
   }
 
-  /**
-   * Verify payment with backend
-   */
+  // Retried on network errors: verify is idempotent server-side (one record per Razorpay payment)
   async verifyPayment(paymentData: RazorpayPaymentData): Promise<any> {
-    try {
-      console.log('=== PAYMENT VERIFICATION START ===');
-      console.log('Payment data being sent:', paymentData);
-      console.log('Amount type:', typeof paymentData.amount, 'Value:', paymentData.amount);
-      console.log('Payment method:', paymentData.paymentMethod);
-      console.log('Currency:', paymentData.currency);
-      console.log('Booking ID:', paymentData.bookingId);
-      
-      const token = localStorage.getItem('token') || 
-                   localStorage.getItem('userToken') || 
-                   localStorage.getItem('authToken');
-      
-      if (!token) {
-        throw new Error('Authentication token not found');
+    const body = JSON.stringify({
+      razorpayOrderId: paymentData.razorpayOrderId,
+      razorpayPaymentId: paymentData.razorpayPaymentId,
+      razorpaySignature: paymentData.razorpaySignature,
+      bookingId: paymentData.bookingId,
+      paymentMethod: paymentData.paymentMethod,
+      currency: paymentData.currency
+    });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await apiService.request('/payments/verify', { method: 'POST', body }, 'user');
+        return res.data;
+      } catch (error) {
+        if ((error as { status?: number }).status || attempt >= 2) throw error;
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
       }
-
-      const requestBody = {
-        razorpayOrderId: paymentData.razorpayOrderId,
-        razorpayPaymentId: paymentData.razorpayPaymentId,
-        razorpaySignature: paymentData.razorpaySignature,
-        bookingId: paymentData.bookingId,
-        amount: paymentData.amount,
-        paymentMethod: paymentData.paymentMethod,
-        currency: paymentData.currency
-      };
-
-      console.log('Request body being sent:', requestBody);
-      console.log('API URL:', `${this.apiBaseUrl}/payments/verify`);
-      console.log('Token available:', !!token);
-
-      const response = await fetch(`${this.apiBaseUrl}/payments/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      console.log('Payment verification response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Payment verification failed - Response:', errorData);
-        console.error('Full error details:', {
-          status: response.status,
-          statusText: response.statusText,
-          url: response.url,
-          body: requestBody,
-          errorData: errorData
-        });
-        
-        // Log detailed error information
-        if (response.status === 500) {
-          console.error('=== 500 INTERNAL SERVER ERROR DETAILS ===');
-          console.error('Error message:', errorData.error?.message || errorData.message);
-          console.error('Error details:', errorData.error?.details);
-          console.error('Full error object:', errorData);
-        }
-        
-        throw new Error(errorData.error?.message || errorData.message || 'Payment verification failed');
-      }
-
-      const data = await response.json();
-      console.log('Payment verification successful:', data);
-      console.log('=== PAYMENT VERIFICATION SUCCESS ===');
-      return data.data;
-    } catch (error) {
-      console.error('=== PAYMENT VERIFICATION FAILED ===');
-      console.error('Payment verification failed:', error);
-      throw error;
     }
   }
 

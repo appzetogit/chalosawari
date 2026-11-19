@@ -83,6 +83,8 @@ const AdminOffers = () => {
     discountValue: "",
     maxDiscount: "",
     minBookingAmount: "",
+    usageLimit: "",
+    perUserLimit: "",
     vehicleType: "all" as 'all' | 'car' | 'bus',
     validTill: ""
   };
@@ -156,6 +158,8 @@ const AdminOffers = () => {
       discountValue: Number(offerForm.discountValue),
       maxDiscount: Number(offerForm.maxDiscount) || 0,
       minBookingAmount: Number(offerForm.minBookingAmount) || 0,
+      usageLimit: Number(offerForm.usageLimit) || 0,
+      perUserLimit: Number(offerForm.perUserLimit) || 0,
       vehicleType: offerForm.vehicleType,
       validTill: offerForm.validTill
     };
@@ -209,6 +213,8 @@ const AdminOffers = () => {
       discountValue: offer.discountValue ? String(offer.discountValue) : "",
       maxDiscount: offer.maxDiscount ? String(offer.maxDiscount) : "",
       minBookingAmount: offer.minBookingAmount ? String(offer.minBookingAmount) : "",
+      usageLimit: offer.usageLimit ? String(offer.usageLimit) : "",
+      perUserLimit: offer.perUserLimit ? String(offer.perUserLimit) : "",
       vehicleType: offer.vehicleType || "all",
       validTill: offer.validTill ? offer.validTill.slice(0, 10) : ""
     });
@@ -401,6 +407,30 @@ const AdminOffers = () => {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="usageLimit">Total Uses</Label>
+                      <Input
+                        id="usageLimit"
+                        type="number"
+                        min={0}
+                        value={offerForm.usageLimit}
+                        onChange={(e) => setOfferForm({ ...offerForm, usageLimit: e.target.value })}
+                        placeholder="Unlimited"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="perUserLimit">Uses per Customer</Label>
+                      <Input
+                        id="perUserLimit"
+                        type="number"
+                        min={0}
+                        value={offerForm.perUserLimit}
+                        onChange={(e) => setOfferForm({ ...offerForm, perUserLimit: e.target.value })}
+                        placeholder="Unlimited"
+                      />
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     {offerForm.discountType === 'percent' && (
                       <div className="space-y-2">

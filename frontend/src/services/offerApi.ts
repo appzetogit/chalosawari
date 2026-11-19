@@ -9,6 +9,8 @@ interface Offer {
   discountType?: 'percent' | 'flat';
   discountValue?: number;
   maxDiscount?: number;
+  usageLimit?: number; // 0 = unlimited
+  perUserLimit?: number; // 0 = unlimited
   minBookingAmount?: number;
   vehicleType?: 'all' | 'car' | 'bus';
   validTill?: string | null;
@@ -32,7 +34,7 @@ interface OfferResponse {
 }
 
 // Editable offer/coupon fields sent from the admin form
-type OfferFields = Pick<Offer, 'title' | 'description' | 'code' | 'discountType' | 'discountValue' | 'maxDiscount' | 'minBookingAmount' | 'vehicleType'> & { validTill?: string };
+type OfferFields = Pick<Offer, 'title' | 'description' | 'code' | 'discountType' | 'discountValue' | 'maxDiscount' | 'minBookingAmount' | 'vehicleType' | 'usageLimit' | 'perUserLimit'> & { validTill?: string };
 
 const toFormData = (fields: OfferFields, image?: File | null) => {
   const formData = new FormData();

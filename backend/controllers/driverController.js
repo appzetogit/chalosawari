@@ -3,6 +3,7 @@ const Vehicle = require('../models/Vehicle');
 const Booking = require('../models/Booking');
 const { sendEmail } = require('../utils/notifications');
 const asyncHandler = require('../middleware/asyncHandler');
+const { bookingSplit, paidOnline } = require('../utils/bookingSplit');
 
 // @desc    Get driver profile
 // @route   GET /api/driver/profile
@@ -143,100 +144,45 @@ const toggleStatus = asyncHandler(async (req, res) => {
 // @desc    Get driver earnings
 // @route   GET /api/driver/earnings
 // @access  Private (Driver)
+// Driver's share of completed trips (bookingSplit: cash of advance bookings, fare minus platform fee otherwise),
+// counted on the day the trip was completed
+const driverEarnings = async (driverId, from, to) => {
+  const range = {};
+  if (from) range.$gte = from;
+  if (to) range.$lte = to;
+  const bookings = await Booking.find({
+    driver: driverId,
+    status: 'completed',
+    ...(from || to ? { 'trip.endTime': range } : {})
+  }).select('pricing payment status trip.endTime createdAt').lean();
+  const rows = bookings.map(b => {
+    const { driver } = bookingSplit(b);
+    return { amount: driver, netAmount: driver, date: b.trip?.endTime || b.createdAt, paymentStatus: b.payment?.status, bookingStatus: b.status };
+  });
+  return { rows, total: Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100 };
+};
+
 const getEarnings = asyncHandler(async (req, res) => {
   const { period = 'month', startDate, endDate } = req.query;
-  
-  console.log('=== DRIVER EARNINGS API CALLED ===');
-  console.log('Driver ID:', req.driver.id);
-  console.log('Period:', period);
-  console.log('Date filters:', { startDate, endDate });
-  
-  let dateFilter = {};
-  
+  const now = new Date();
+  let from;
+  let to;
   if (startDate && endDate) {
-    dateFilter = {
-      createdAt: {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      }
-    };
-  } else {
-    const now = new Date();
-    if (period === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      dateFilter = { createdAt: { $gte: weekAgo } };
-    } else if (period === 'month') {
-      const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
-      dateFilter = { createdAt: { $gte: monthAgo } };
-    } else if (period === 'year') {
-      const yearAgo = new Date(now.getFullYear(), 0, 1);
-      dateFilter = { createdAt: { $gte: yearAgo } };
-    }
+    from = new Date(startDate);
+    to = new Date(endDate);
+  } else if (period === 'week') {
+    from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else if (period === 'month') {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (period === 'year') {
+    from = new Date(now.getFullYear(), 0, 1);
   }
 
-  console.log('Final date filter:', dateFilter);
-
-  try {
-    // First, let's check if there are any bookings for this driver at all
-    const allDriverBookings = await Booking.find({ driver: req.driver.id }).select('_id createdAt status payment.status pricing.totalAmount');
-    console.log('All driver bookings found:', allDriverBookings.length);
-    
-    if (allDriverBookings.length > 0) {
-      console.log('Sample driver booking:', {
-        id: allDriverBookings[0]._id,
-        createdAt: allDriverBookings[0].createdAt,
-        status: allDriverBookings[0].status,
-        paymentStatus: allDriverBookings[0].payment?.status,
-        totalAmount: allDriverBookings[0].pricing?.totalAmount
-      });
-    }
-
-    // Get all paid bookings (including Razorpay paid requests)
-    const bookings = await Booking.find({
-      driver: req.driver.id,
-      'payment.status': 'completed', // Payment is completed
-      ...dateFilter
-    }).select('pricing.totalAmount createdAt payment status');
-    
-    console.log('Earnings - Paid bookings found:', bookings.length);
-    if (bookings.length > 0) {
-      console.log('Sample paid booking for earnings:', {
-        amount: bookings[0].pricing?.totalAmount,
-        date: bookings[0].createdAt,
-        paymentStatus: bookings[0].payment.status,
-        bookingStatus: bookings[0].status
-      });
-    }
-
-    const totalEarnings = bookings.reduce((sum, booking) => sum + (booking.pricing?.totalAmount || 0), 0);
-    console.log('Total earnings calculated:', totalEarnings);
-
-    res.json({
-      success: true,
-      data: {
-        period,
-        totalBookings: bookings.length,
-        totalEarnings,
-        netEarnings: totalEarnings, // For backward compatibility
-        bookings: bookings.map(booking => ({
-          amount: booking.pricing?.totalAmount || 0,
-          netAmount: booking.pricing?.totalAmount || 0,
-          date: booking.createdAt,
-          paymentStatus: booking.payment.status,
-          bookingStatus: booking.status
-        }))
-      }
-    });
-  } catch (error) {
-    console.error('Error in getEarnings:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        message: 'Internal server error',
-        details: error.message
-      }
-    });
-  }
+  const { rows, total } = await driverEarnings(req.driver.id, from, to);
+  res.json({
+    success: true,
+    data: { period, totalBookings: rows.length, totalEarnings: total, netEarnings: total, bookings: rows }
+  });
 });
 
 // @desc    Get driver today's earnings
@@ -262,83 +208,17 @@ const getCashCollected = asyncHandler(async (req, res) => {
 });
 
 const getTodayEarnings = asyncHandler(async (req, res) => {
-  console.log('=== DRIVER TODAY EARNINGS API CALLED ===');
-  console.log('Driver ID:', req.driver.id);
-  console.log('Driver Name:', req.driver.firstName, req.driver.lastName);
-  
-  const today = new Date();
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
-  
-  console.log('Date range:', { startOfDay, endOfDay });
+  // Today in IST (server runs in UTC)
+  const IST = 5.5 * 60 * 60 * 1000;
+  const day = new Date(Date.now() + IST).toISOString().slice(0, 10);
+  const from = new Date(new Date(day + 'T00:00:00Z').getTime() - IST);
+  const to = new Date(from.getTime() + 24 * 60 * 60 * 1000 - 1);
 
-  try {
-    // First, let's check if there are any bookings for this driver at all
-    const allDriverBookings = await Booking.find({ driver: req.driver.id }).select('_id createdAt status payment.status pricing.totalAmount');
-    console.log('All driver bookings found:', allDriverBookings.length);
-    
-    if (allDriverBookings.length > 0) {
-      console.log('Sample driver booking:', {
-        id: allDriverBookings[0]._id,
-        createdAt: allDriverBookings[0].createdAt,
-        status: allDriverBookings[0].status,
-        paymentStatus: allDriverBookings[0].payment?.status,
-        totalAmount: allDriverBookings[0].pricing?.totalAmount
-      });
-    }
-
-    // Get all paid bookings for today (including Razorpay paid requests)
-    const paidBookings = await Booking.find({
-      driver: req.driver.id,
-      'payment.status': 'completed', // Payment is completed
-      createdAt: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
-    }).select('pricing.totalAmount createdAt payment status');
-    
-    console.log('Paid bookings found for today:', paidBookings.length);
-    if (paidBookings.length > 0) {
-      console.log('Sample paid booking data:', {
-        amount: paidBookings[0].pricing?.totalAmount,
-        date: paidBookings[0].createdAt,
-        paymentStatus: paidBookings[0].payment.status,
-        bookingStatus: paidBookings[0].status
-      });
-    }
-
-    // Calculate earnings from paid bookings (pricing.totalAmount is the driver's earnings)
-    const totalEarnings = paidBookings.reduce((sum, booking) => sum + (booking.pricing?.totalAmount || 0), 0);
-    
-    console.log('Earnings calculation:', { totalEarnings });
-    console.log('=== DRIVER TODAY EARNINGS API COMPLETED ===');
-
-    res.json({
-      success: true,
-      data: {
-        date: today.toISOString().split('T')[0],
-        totalBookings: paidBookings.length,
-        totalEarnings,
-        netEarnings: totalEarnings, // For backward compatibility
-        paidBookings: paidBookings.map(booking => ({
-          amount: booking.pricing?.totalAmount || 0,
-          netAmount: booking.pricing?.totalAmount || 0,
-          date: booking.createdAt,
-          paymentStatus: booking.payment.status,
-          bookingStatus: booking.status
-        }))
-      }
-    });
-  } catch (error) {
-    console.error('Error in getTodayEarnings:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        message: 'Internal server error',
-        details: error.message
-      }
-    });
-  }
+  const { rows, total } = await driverEarnings(req.driver.id, from, to);
+  res.json({
+    success: true,
+    data: { date: day, totalBookings: rows.length, totalEarnings: total, netEarnings: total, paidBookings: rows }
+  });
 });
 
 // @desc    Get driver bookings
@@ -540,6 +420,25 @@ const completeTrip = asyncHandler(async (req, res) => {
     });
   }
 
+  // Same rule as PUT /bookings/:id/status: an advance booking can't complete before the cash is collected
+  const partial = booking.payment?.isPartialPayment ? booking.payment.partialPaymentDetails : null;
+  if (partial && partial.cashPaymentStatus !== 'collected') {
+    if (req.body.cashCollected !== true) {
+      return res.status(400).json({
+        success: false,
+        message: `Collect ₹${partial.cashAmount} cash from the passenger before completing the trip`
+      });
+    }
+    partial.cashPaymentStatus = 'collected';
+    partial.cashCollectedAt = new Date();
+    partial.cashCollectedBy = req.driver.id;
+    partial.cashCollectedByModel = 'Driver';
+    if (partial.onlinePaymentStatus === 'completed') {
+      booking.payment.status = 'completed';
+      booking.payment.completedAt = new Date();
+    }
+  }
+
   // Set tracking information for the pre-save middleware
   booking._updatedByModel = 'Driver';
   booking._updatedBy = req.driver.id;
@@ -624,7 +523,7 @@ const cancelTrip = asyncHandler(async (req, res) => {
     cancelledByModel: 'Driver',
     cancelledAt: new Date(),
     reason: reason || 'Cancelled by driver',
-    refundAmount: booking.pricing ? booking.pricing.totalAmount : 0,
+    refundAmount: paidOnline(booking),
     refundStatus: 'pending',
     refundMethod: null,
     refundInitiatedAt: null,
@@ -632,19 +531,7 @@ const cancelTrip = asyncHandler(async (req, res) => {
     refundNotes: notes || ''
   };
 
-  // Add to status history
-  if (!booking.statusHistory) {
-    booking.statusHistory = [];
-  }
-  
-  booking.statusHistory.push({
-    status: 'cancelled',
-    timestamp: new Date(),
-    updatedBy: req.driver.id,
-    updatedByModel: 'Driver',
-    reason: reason || 'Cancelled by driver'
-  });
-
+  // statusHistory is written by the Booking pre-save hook
   await booking.save();
 
   // Vehicle status will be automatically updated by the pre-save middleware
@@ -1283,25 +1170,17 @@ const getDriverStats = asyncHandler(async (req, res) => {
   });
   console.log('Cancelled bookings count:', cancelledBookings);
   
-  const totalEarnings = await Booking.aggregate([
-    { $match: { driver: req.driver.id, status: 'completed' } },
-    { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-  ]);
-  console.log('Total earnings aggregation result:', totalEarnings);
-
-  const averageRating = await Booking.aggregate([
-    { $match: { driver: req.driver.id, 'ratings.driver': { $exists: true } } },
-    { $group: { _id: null, avgRating: { $avg: '$ratings.driver' } } }
-  ]);
-  console.log('Average rating aggregation result:', averageRating);
+  // (The old aggregates matched a string id against ObjectIds and summed non-existent fields: always 0)
+  const { total: totalEarnings } = await driverEarnings(req.driver.id);
 
   const stats = {
     totalBookings,
     completedBookings,
     cancelledBookings,
     completionRate: totalBookings > 0 ? (completedBookings / totalBookings * 100).toFixed(2) : 0,
-    totalEarnings: totalEarnings[0]?.total || 0,
-    averageRating: averageRating[0]?.avgRating?.toFixed(1) || 0,
+    totalEarnings,
+    // Running average kept up to date by PUT /user/bookings/:id/rating
+    averageRating: driver.rating ? Number(driver.rating).toFixed(1) : 0,
     isOnline: driver.isOnline,
     lastOnline: driver.lastStatusChange
   };
@@ -1401,7 +1280,7 @@ const acceptDriverAgreement = asyncHandler(async (req, res) => {
     {
       'agreement.isAccepted': true,
       'agreement.acceptedAt': new Date(),
-      'agreement.ipAddress': ipAddress || req.ip || 'unknown'
+      'agreement.ipAddress': req.ip || ipAddress || 'unknown' // server-seen IP (trust proxy), not client-claimed
     },
     { new: true, runValidators: true }
   ).select('-password');

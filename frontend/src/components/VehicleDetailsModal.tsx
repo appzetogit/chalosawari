@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui2/dialog';
-import { Button } from '@/components/ui2/button';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import {
   Wifi,
   Tv,
@@ -83,9 +83,10 @@ interface VehicleDetailsModalProps {
 }
 
 const VehicleDetailsModal = ({ vehicle, isOpen, onClose, onBookNow }: VehicleDetailsModalProps) => {
-  if (!vehicle) return null;
-
+  // Hooks must run before any early return
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  if (!vehicle) return null;
 
   const images = vehicle.images && vehicle.images.length > 0 ? vehicle.images : [];
 

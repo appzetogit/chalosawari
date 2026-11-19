@@ -56,8 +56,14 @@ const { getRoadDistanceKm } = require('./utils/roadDistance');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Behind nginx: take the client IP from X-Forwarded-For (1 hop), else every user shares 127.0.0.1 in the rate limiter
+app.set('trust proxy', 1);
+
 // Connect to MongoDB
 connectDB();
+
+// Refund captured booking payments that never turned into a booking
+require('./utils/orphanPaymentSweeper').startOrphanPaymentSweeper();
 
 // Security middleware
 app.use(helmet({
@@ -89,8 +95,8 @@ const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500, // limit each IP to 500 requests per windowMs
   message: {
-    error: 'Too many requests from this IP, please try again later.',
-    retryAfter: Math.ceil(parseInt(process.env.RATE_LIMIT_WINDOW_MS) / 1000 / 60),
+    success: false,
+    error: { message: 'Too many requests. Please try again after some time.', statusCode: 429 }
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -138,7 +144,15 @@ app.get('/api/config/maps-key', (req, res) => {
 });
 
 // Road (driving) distance used for search display and fares; distanceKm is null if Google can't route it
-app.get('/api/config/distance', async (req, res) => {
+// Public but each call costs a Google Distance Matrix request: cap it per IP
+const distanceLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { success: false, error: { message: 'Too many distance lookups. Please try again later.', statusCode: 429 } },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.get('/api/config/distance', distanceLimiter, async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   const nums = [fromLat, fromLng, toLat, toLng].map(Number);
   if (nums.some(n => !Number.isFinite(n))) {

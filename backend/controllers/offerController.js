@@ -13,6 +13,8 @@ const pickCouponFields = (body) => {
   if (body.discountType !== undefined) fields.discountType = body.discountType;
   if (body.discountValue !== undefined) fields.discountValue = Number(body.discountValue);
   if (body.maxDiscount !== undefined) fields.maxDiscount = Number(body.maxDiscount) || 0;
+  if (body.usageLimit !== undefined) fields.usageLimit = Math.max(0, parseInt(body.usageLimit) || 0);
+  if (body.perUserLimit !== undefined) fields.perUserLimit = Math.max(0, parseInt(body.perUserLimit) || 0);
   if (body.minBookingAmount !== undefined) fields.minBookingAmount = Number(body.minBookingAmount) || 0;
   if (body.vehicleType !== undefined) fields.vehicleType = body.vehicleType;
   if (body.validTill !== undefined) fields.validTill = body.validTill ? new Date(body.validTill) : null;
@@ -24,7 +26,7 @@ const pickCouponFields = (body) => {
 // @access  Private (User)
 const validateCoupon = asyncHandler(async (req, res) => {
   const { code, amount, vehicleType } = req.body;
-  const result = await Offer.applyCoupon(code, { amount: Number(amount) || 0, vehicleType });
+  const result = await Offer.applyCoupon(code, { amount: Number(amount) || 0, vehicleType, userId: req.user.id });
   if (result.error) {
     return res.status(400).json({ success: false, message: result.error });
   }

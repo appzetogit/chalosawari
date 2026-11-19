@@ -17,7 +17,7 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { resolveImageUrl } from "@/utils/imageUrl";
-import { adminVehicles } from "@/services/adminApi";
+import { adminVehicles, fetchAllPages } from "@/services/adminApi";
 import vehicleSettingService, { VehicleModelItem } from "@/services/vehicleSettingApi";
 import { 
   Car, 
@@ -235,10 +235,8 @@ const AdminVehicleManagement = () => {
   const fetchVehicles = async () => {
     try {
       setIsLoading(true);
-      const response = await adminVehicles.getAll({
+      const response = await fetchAllPages(adminVehicles.getAll, {
         approvalStatus: 'approved',
-        page: 1,
-        limit: 100,
         sortBy: 'createdAt',
         sortOrder: 'desc'
       });

@@ -1,4 +1,4 @@
-import { toast } from '@/hooks/use-toast';
+import apiService from './api';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL) ||
   (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
@@ -33,83 +33,21 @@ class BookingApiService {
     this.baseUrl = baseUrl;
   }
 
+  // Goes through apiService: refreshes an expired token instead of failing after the user has paid
   private async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${this.baseUrl}${endpoint}`;
-    
-    // Get auth token from localStorage - check multiple possible keys
-    let token = localStorage.getItem('token') || 
-                localStorage.getItem('userToken') || 
-                localStorage.getItem('authToken');
-    
-    console.log('Debug - API Request Details:');
-    console.log('Debug - URL:', url);
-    console.log('Debug - Token exists:', !!token);
-    
-    if (!token) {
-      console.error('Debug - No authentication token found! User must be logged in.');
-      throw new Error('Authentication required. Please log in to book a vehicle.');
-    }
-    
-    const config: RequestInit = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        ...options.headers,
-      },
-      ...options,
-    };
-
-    try {
-      const response = await fetch(url, config);
-      console.log('Debug - Response status:', response.status);
-      console.log('Debug - Response headers:', Object.fromEntries(response.headers.entries()));
-      
-      const data = await response.json();
-      console.log('Debug - Response data:', data);
-
-      if (!response.ok) {
-        console.error('Debug - Request failed with status:', response.status);
-        console.error('Debug - Error data:', data);
-        
-        // Provide more specific error messages
-        if (response.status === 401) {
-          throw new Error('Authentication failed. Please log in again.');
-        } else if (response.status === 400) {
-          const errorDetails = data.error?.details || [];
-          const fieldErrors = errorDetails.map((err: any) => `${err.field}: ${err.message}`).join(', ');
-          throw new Error(fieldErrors ? `Validation failed: ${fieldErrors}` : (data.error?.message || data.message || 'Invalid data'));
-        } else {
-          throw new Error(data.error?.message || data.message || 'Something went wrong');
-        }
-      }
-
-      return data;
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
-    }
+    return apiService.request(endpoint, options, 'user');
   }
 
+  // Retries network failures: the server claims the payment once and returns the same booking on a retry
   async createBooking(bookingData: BookingData) {
-    try {
-      const response = await this.request('/bookings', {
-        method: 'POST',
-        body: JSON.stringify(bookingData),
-      });
-
-      toast({
-        title: "Booking Successful!",
-        description: "Your vehicle has been booked successfully.",
-      });
-
-      return response;
-    } catch (error) {
-      toast({
-        title: "Booking Failed",
-        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
-      throw error;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.request('/bookings', { method: 'POST', body: JSON.stringify(bookingData) });
+      } catch (error) {
+        const isNetwork = !(error as { status?: number }).status;
+        if (!isNetwork || attempt >= 2) throw error;
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      }
     }
   }
 
@@ -128,15 +66,6 @@ class BookingApiService {
 
   async getBookingById(bookingId: string) {
     return this.request(`/bookings/${bookingId}`);
-  }
-
-  async cancelBooking(bookingId: string, reason?: string) {
-    const body = reason ? { reason } : {};
-    
-    return this.request(`/bookings/${bookingId}/cancel`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    });
   }
 }
 

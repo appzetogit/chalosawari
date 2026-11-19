@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => ({
     mode === 'development' &&
     componentTagger(),
   ].filter(Boolean),
+  // Production build drops console.log/debug noise (115 calls, some dumping API responses); errors stay
+  esbuild: mode === 'production' ? { pure: ['console.log', 'console.debug'] } : undefined,
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -16,6 +16,7 @@ const createRazorpayOrder = asyncHandler(async (req, res) => {
       receipt: receipt || `receipt_${Date.now()}`,
       notes: {
         ...notes,
+        app: 'chalosawari', // lets the orphan-payment sweeper refund only this app's orders
         userId: req.user.id,
         userEmail: req.user.email,
         timestamp: new Date().toISOString(),

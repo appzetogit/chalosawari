@@ -61,10 +61,22 @@ interface UserAuthProviderProps {
 }
 
 export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Cached profile → pages render instantly on app open; the server copy refreshes it in the background
+  const [user, setUser] = useState<User | null>(() => {
+    if (!localStorage.getItem('token')) return null;
+    try { return JSON.parse(localStorage.getItem('userData') || 'null'); } catch { return null; }
+  });
+  const [isLoading, setIsLoading] = useState(() => !user);
 
   const isAuthenticated = !!user;
+
+  // Keep the cache in sync with every login / profile update / logout
+  useEffect(() => {
+    try {
+      if (user) localStorage.setItem('userData', JSON.stringify(user));
+      else localStorage.removeItem('userData');
+    } catch { /* storage full or blocked: cache is optional */ }
+  }, [user]);
 
   // Store FCM token after login / register / session restore
   useEffect(() => {
@@ -75,8 +87,8 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
-        setIsLoading(true);
-        console.log('Checking auth status...');
+        // No loader when a cached profile is already on screen
+        if (!localStorage.getItem('userData')) setIsLoading(true);
         
         // Check if we have a token first
         const hasToken = apiService.isAuthenticated();
@@ -92,8 +104,7 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
         }
       } catch (error) {
         console.error('Auth check failed:', error);
-        // Keep the token: api.js already clears it on a real 401; a network/5xx error (deploy restart) must not log out
-        setUser(null);
+        // refreshUser already logged out on a real 401; a network/5xx error keeps the cached user signed in
       } finally {
         setIsLoading(false);
       }
@@ -262,8 +273,9 @@ export const UserAuthProvider: React.FC<UserAuthProviderProps> = ({ children }) 
       }
     } catch (error) {
       console.error('Profile refresh error:', error);
-      // Token is cleared by api.js only on a real 401 (after a failed refresh), not on network errors
-      setUser(null);
+      // api.js removes the token only on a real 401 (after a failed refresh): that is a logout.
+      // Network/5xx errors (offline, deploy restart) keep the cached user.
+      if (!localStorage.getItem('token')) setUser(null);
       throw error;
     }
   };

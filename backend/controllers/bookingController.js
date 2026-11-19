@@ -8,6 +8,7 @@ const VehicleSetting = require('../models/VehicleSetting');
 const Offer = require('../models/Offer');
 const asyncHandler = require('../middleware/asyncHandler');
 const { getRoadDistanceKm } = require('../utils/roadDistance');
+const { overlappingBookingsQuery } = require('../utils/bookingOverlap');
 const puppeteer = require('puppeteer');
 
 // Helper function to calculate distance between two points using Haversine formula
@@ -49,6 +50,24 @@ const createBooking = asyncHandler(async (req, res) => {
     { new: true }
   );
   if (!payment) {
+    // Retry of a request whose response was lost: this payment already created this user's booking
+    const used = await Payment.findOne({ _id: req.body.paymentId, user: req.user.id }).select('booking amount');
+    const existing = used?.booking && mongoose.isValidObjectId(used.booking)
+      ? await Booking.findOne({ _id: used.booking, user: req.user.id }).select('bookingNumber pricing.totalAmount status')
+      : null;
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: 'Booking created successfully',
+        data: {
+          bookingId: existing._id,
+          bookingNumber: existing.bookingNumber,
+          totalAmount: existing.pricing?.totalAmount,
+          paidAmount: used.amount,
+          status: existing.status
+        }
+      });
+    }
     return res.status(409).json({
       success: false,
       message: 'Payment not found, not yours, or already used for another booking'
@@ -138,12 +157,27 @@ const buildPaidBooking = async (req, payment, bookingId) => {
     return { error: { status: 400, message: 'Vehicle has no assigned driver' } };
   }
 
-  // Someone else may have booked this vehicle for the same day while this user was paying
-  // ponytail: check-then-insert, a near-simultaneous pair can still both pass; a unique index on (vehicle, date) for active bookings would close it
+  // Same rule as the public listings: only approved, active vehicles of active drivers can be booked
+  if (!vehicle.isActive || vehicle.approvalStatus !== 'approved' || !vehicle.driver.isActive) {
+    return { error: { status: 400, message: 'This vehicle is not available for booking' } };
+  }
+
+  // Trip must not start in the past (IST); a return date can't be before the pickup date
+  const todayIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const nowHHMM = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(11, 16);
+  if (normalizedDate < todayIST || (normalizedDate === todayIST && time.slice(0, 5) < nowHHMM)) {
+    return { error: { status: 400, message: 'Pickup date and time cannot be in the past' } };
+  }
+  const returnDate = req.body.returnDate ? String(req.body.returnDate).split('T')[0] : null;
+  if (returnDate && returnDate < normalizedDate) {
+    return { error: { status: 400, message: 'Return date cannot be before the pickup date' } };
+  }
+
+  // Someone else may have booked this vehicle for any day of this trip while this user was paying
+  // ponytail: check-then-insert, a near-simultaneous pair can still both pass; a lock per vehicle would close it
   const alreadyBooked = await Booking.exists({
     vehicle: vehicleId,
-    'tripDetails.date': normalizedDate,
-    status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] }
+    ...overlappingBookingsQuery(normalizedDate, returnDate)
   });
   if (alreadyBooked) {
     return { error: { status: 409, message: 'This vehicle was just booked by someone else for this date' } };
@@ -261,7 +295,8 @@ const buildPaidBooking = async (req, payment, bookingId) => {
   if (req.body.couponCode) {
     const coupon = await Offer.applyCoupon(req.body.couponCode, {
       amount: totalAmount,
-      vehicleType: vehicle.pricingReference?.category
+      vehicleType: vehicle.pricingReference?.category,
+      userId: req.user.id
     });
     if (coupon.error) {
       return { error: { status: 400, message: coupon.error } };
@@ -302,7 +337,7 @@ const buildPaidBooking = async (req, payment, bookingId) => {
       duration: Math.round(distance * 2),
       // Add trip type and return date to trip details
       tripType: req.body.tripType || 'one-way',
-      returnDate: req.body.returnDate || null
+      returnDate: returnDate
     },
     pricing: {
       basePrice: vehicle.pricing?.basePrice,
@@ -335,7 +370,7 @@ const buildPaidBooking = async (req, payment, bookingId) => {
     // Add trip type at the root level for backward compatibility
     tripType: req.body.tripType || 'one-way',
     // Add return date at the root level for backward compatibility
-    returnDate: req.body.returnDate || null,
+    returnDate: returnDate,
     status: 'pending'
   });
 
@@ -427,6 +462,12 @@ const getBookingReceipt = asyncHandler(async (req, res) => {
       discount: booking.pricing?.discount ? `₹${booking.pricing.discount}` : null,
       totalAmount: `₹${booking.pricing?.totalAmount || 'N/A'}`
     };
+
+    // Addresses/names are user input: escape before putting them into the HTML that Chromium renders
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    for (const k of Object.keys(receiptData)) {
+      if (receiptData[k] != null) receiptData[k] = esc(receiptData[k]);
+    }
 
     // Generate HTML template for receipt
     const htmlTemplate = `
@@ -684,146 +725,37 @@ const getBookingReceipt = asyncHandler(async (req, res) => {
     `;
 
     try {
-      console.log('Starting PDF generation for booking:', receiptData.bookingNumber);
-      
-      // Test if Puppeteer is working
-      console.log('Testing Puppeteer availability...');
-      if (!puppeteer) {
-        throw new Error('Puppeteer is not available');
-      }
-      
-      // Try alternative PDF generation method first (more reliable)
+      // One browser per receipt, always closed (a failed attempt used to leak a Chromium process)
+      let browser;
+      let pdfBuffer;
       try {
-        console.log('Attempting alternative PDF generation...');
-        
-        const browser = await puppeteer.launch({ 
+        browser = await puppeteer.launch({
           headless: true,
-          args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-extensions',
-            '--disable-plugins',
-            '--no-first-run'
-          ]
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run']
         });
-        
         const page = await browser.newPage();
-        
-        // Set content with simpler approach
-        await page.setContent(htmlTemplate);
-        
-        // Wait for content to be ready
-        await page.waitForTimeout(1000);
-        
-        const pdfBuffer = await page.pdf({
+        // Receipt is self-contained HTML: no network needed (also blocks fetches from injected markup)
+        await page.setRequestInterception(true);
+        page.on('request', r => (r.url().startsWith('data:') || r.url() === 'about:blank' ? r.continue() : r.abort()));
+        await page.setContent(htmlTemplate, { waitUntil: 'load', timeout: 20000 });
+        pdfBuffer = await page.pdf({
           format: 'A4',
           printBackground: true,
-          margin: {
-            top: '20px',
-            right: '20px',
-            bottom: '20px',
-            left: '20px'
-          }
+          margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
         });
-        
-        await browser.close();
-        
-        if (pdfBuffer && pdfBuffer.length > 0) {
-          console.log('Alternative PDF generation successful, buffer size:', pdfBuffer.length);
-          
-          // Set response headers for PDF download
-          res.setHeader('Content-Type', 'application/pdf');
-          res.setHeader('Content-Disposition', `attachment; filename="receipt_${receiptData.bookingNumber}.pdf"`);
-          res.setHeader('Content-Length', pdfBuffer.length);
-          res.setHeader('Cache-Control', 'no-cache');
-          
-          // Send the PDF buffer
-          res.send(pdfBuffer);
-          console.log('PDF response sent successfully');
-          return;
-        }
-      } catch (altError) {
-        console.log('Alternative PDF generation failed, trying main method:', altError.message);
+      } finally {
+        if (browser) await browser.close().catch(() => {});
       }
-      
-      // Main PDF generation method
-      console.log('Using main PDF generation method...');
-      
-      // Generate PDF using Puppeteer with optimized settings
-      const browser = await puppeteer.launch({ 
-        headless: true,
-        args: [
-          '--no-sandbox', 
-          '--disable-setuid-sandbox', 
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--disable-web-security',
-          '--disable-features=VizDisplayCompositor',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process'
-        ]
-      });
-      
-      console.log('Browser launched successfully');
-      
-      const page = await browser.newPage();
-      console.log('Page created successfully');
-      
-      // Set viewport for consistent rendering
-      await page.setViewport({ width: 1200, height: 800 });
-      
-      // Set content and wait for it to load
-      console.log('Setting HTML content...');
-      await page.setContent(htmlTemplate, { 
-        waitUntil: ['load', 'networkidle0'],
-        timeout: 30000
-      });
-      
-      console.log('HTML content set, waiting for render...');
-      
-      // Wait a bit more to ensure everything is rendered
-      await page.waitForTimeout(2000);
-      
-      console.log('Generating PDF...');
-      
-      // Generate PDF with optimized settings
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '20px',
-          right: '20px',
-          bottom: '20px',
-          left: '20px'
-        },
-        preferCSSPageSize: true,
-        displayHeaderFooter: false
-      });
-      
-      console.log('PDF generated successfully, buffer size:', pdfBuffer.length);
-      
-      await browser.close();
-      console.log('Browser closed successfully');
 
-      // Verify PDF was generated successfully
       if (!pdfBuffer || pdfBuffer.length === 0) {
         throw new Error('PDF generation failed - empty buffer');
       }
 
-      console.log('Sending PDF response...');
-      
-      // Set response headers for PDF download
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="receipt_${receiptData.bookingNumber}.pdf"`);
       res.setHeader('Content-Length', pdfBuffer.length);
       res.setHeader('Cache-Control', 'no-cache');
-      
-      // Send the PDF buffer
-      res.send(pdfBuffer);
-      console.log('PDF response sent successfully');
+      res.send(Buffer.from(pdfBuffer));
 
     } catch (pdfError) {
       console.error('All PDF generation methods failed with error:', pdfError.message);
@@ -874,135 +806,6 @@ const getBookingReceipt = asyncHandler(async (req, res) => {
       message: 'Error generating receipt'
     });
   }
-});
-
-// @desc    Get user bookings
-// @route   GET /api/bookings
-// @access  Private (User)
-const getUserBookings = asyncHandler(async (req, res) => {
-  const { status, page = 1, limit = 10 } = req.query;
-
-  const query = { user: req.user.id };
-  if (status) query.status = status;
-
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-  
-  const [bookings, total] = await Promise.all([
-    Booking.find(query)
-      .populate([
-        { path: 'driver', select: 'firstName lastName phone rating' },
-        { path: 'vehicle', select: 'type brand model color registrationNumber' }
-      ])
-      .select('tripDetails pricing status bookingNumber createdAt user cancellation')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit)),
-    Booking.countDocuments(query)
-  ]);
-
-  res.json({
-    success: true,
-    data: {
-      docs: bookings,
-      totalDocs: total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
-      hasNextPage: skip + bookings.length < total,
-      hasPrevPage: parseInt(page) > 1
-    }
-  });
-});
-
-// @desc    Get booking by ID
-// @route   GET /api/bookings/:id
-// @access  Private (User/Driver)
-const getBookingById = asyncHandler(async (req, res) => {
-  const booking = await Booking.findById(req.params.id)
-    .populate([
-      { path: 'user', select: 'firstName lastName phone email' },
-      { path: 'driver', select: 'firstName lastName phone rating' },
-      { path: 'vehicle', select: 'type brand model color registrationNumber' }
-    ])
-    .select('tripDetails pricing status bookingNumber createdAt user cancellation');
-
-  if (!booking) {
-    return res.status(404).json({
-      success: false,
-      message: 'Booking not found'
-    });
-  }
-
-  // Check if user is authorized to view this booking
-  if (req.user && booking.user.toString() !== req.user.id) {
-    if (req.driver && booking.driver.toString() !== req.driver.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to view this booking'
-      });
-    }
-  }
-
-  res.json({
-    success: true,
-    data: booking
-  });
-});
-
-// @desc    Cancel booking
-// @route   PUT /api/bookings/:id/cancel
-// @access  Private (User)
-const cancelBooking = asyncHandler(async (req, res) => {
-  const { reason } = req.body;
-
-  const booking = await Booking.findById(req.params.id);
-  if (!booking) {
-    return res.status(404).json({
-      success: false,
-      message: 'Booking not found'
-    });
-  }
-
-  if (booking.user.toString() !== req.user.id) {
-    return res.status(403).json({
-      success: false,
-      message: 'Not authorized to cancel this booking'
-    });
-  }
-
-  if (!['pending', 'confirmed'].includes(booking.status)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Cannot cancel booking in current status'
-    });
-  }
-
-  // Update booking status with proper tracking
-  booking.status = 'cancelled';
-  booking._updatedByModel = 'User';
-  booking._updatedBy = req.user.id;
-  booking._statusReason = reason;
-  
-  // Add cancellation details
-  booking.cancellation = {
-    cancelledBy: req.user.id,
-    cancelledByModel: 'User',
-    cancelledAt: new Date(),
-    reason: reason,
-    refundAmount: booking.pricing.totalAmount,
-    refundStatus: 'pending'
-  };
-  
-  await booking.save();
-
-  // Vehicle status will be automatically updated by the pre-save middleware
-  // No need to manually update vehicle here
-
-  res.json({
-    success: true,
-    message: 'Booking cancelled successfully',
-    data: booking
-  });
 });
 
 // @desc    Mark cash payment as collected (for partial payment bookings)
@@ -1089,6 +892,5 @@ const collectCashPayment = asyncHandler(async (req, res) => {
 module.exports = {
   createBooking,
   getBookingReceipt,
-  cancelBooking,
   collectCashPayment
 };

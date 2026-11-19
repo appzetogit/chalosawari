@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
 const Vehicle = require('../models/Vehicle');
+const { ACTIVE_BOOKING_STATUSES } = require('../utils/bookingOverlap');
 
 // @desc    Get user profile
 // @route   GET /api/user/profile
@@ -248,13 +249,17 @@ const updateUserPreferences = async (req, res, next) => {
       notifications
     } = req.body;
 
+    // Only set what was sent: replacing the whole notifications object used to wipe the other switches
+    const $set = {};
+    if (preferredVehicleType !== undefined) $set['preferences.preferredVehicleType'] = preferredVehicleType;
+    if (preferredSeat !== undefined) $set['preferences.preferredSeat'] = preferredSeat;
+    for (const key of ['email', 'sms', 'push']) {
+      if (typeof notifications?.[key] === 'boolean') $set[`preferences.notifications.${key}`] = notifications[key];
+    }
+
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
-      {
-        'preferences.preferredVehicleType': preferredVehicleType,
-        'preferences.preferredSeat': preferredSeat,
-        'preferences.notifications': notifications
-      },
+      { $set },
       {
         new: true,
         runValidators: true
@@ -278,36 +283,19 @@ const updateUserPreferences = async (req, res, next) => {
 // @access  Private
 const deleteUserAccount = async (req, res, next) => {
   try {
-    const { password } = req.body;
-
-    if (!password) {
+    // Users log in with OTP only (their password is random and unknown to them), so the authenticated
+    // session plus an explicit confirm flag is the confirmation
+    if (req.body.confirm !== true) {
       return res.status(400).json({
         success: false,
-        error: {
-          message: 'Please provide your password to confirm account deletion',
-          statusCode: 400
-        }
-      });
-    }
-
-    const user = await User.findById(req.user.id).select('+password');
-    
-    // Verify password
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          message: 'Invalid password',
-          statusCode: 401
-        }
+        error: { message: 'Please confirm account deletion', statusCode: 400 }
       });
     }
 
     // Check if user has active bookings
     const activeBookings = await Booking.countDocuments({
       user: req.user.id,
-      status: { $in: ['pending', 'confirmed', 'driver_assigned', 'driver_en_route', 'driver_arrived', 'trip_started'] }
+      status: { $in: ACTIVE_BOOKING_STATUSES }
     });
 
     if (activeBookings > 0) {
@@ -395,18 +383,10 @@ const requestCancellation = async (req, res, next) => {
       requestStatus: 'pending'
     };
 
-    // Add to status history
-    if (!booking.statusHistory) {
-      booking.statusHistory = [];
-    }
-    
-    booking.statusHistory.push({
-      status: 'cancellation_requested',
-      timestamp: new Date(),
-      updatedBy: req.user.id,
-      updatedByModel: 'User',
-      reason: reason || 'User requested cancellation'
-    });
+    // statusHistory is written by the Booking pre-save hook (a manual push here duplicated the entry)
+    booking._updatedByModel = 'User';
+    booking._updatedBy = req.user.id;
+    booking._statusReason = reason || 'User requested cancellation';
 
     await booking.save();
 

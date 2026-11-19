@@ -10,7 +10,6 @@ import { Separator } from "@/components/ui/separator";
 import { 
   User, 
   Mail, 
-  Phone, 
   Calendar, 
   Edit, 
   Save, 
@@ -28,7 +27,8 @@ interface AdminProfileData {
   id: string;
   firstName: string;
   lastName: string;
-  phone: string;
+  email?: string;
+  phone?: string;
   profilePicture?: string;
   isActive: boolean;
   isVerified: boolean;
@@ -68,8 +68,7 @@ const AdminProfile = () => {
         setProfile(response.data);
         setEditProfile({
           firstName: response.data.firstName,
-          lastName: response.data.lastName,
-          phone: response.data.phone
+          lastName: response.data.lastName
         });
       } else {
         throw new Error(response.message || 'Failed to fetch profile');
@@ -118,8 +117,7 @@ const AdminProfile = () => {
     setIsEditing(false);
     setEditProfile({
       firstName: profile?.firstName || '',
-      lastName: profile?.lastName || '',
-      phone: profile?.phone || ''
+      lastName: profile?.lastName || ''
     });
   };
 
@@ -217,53 +215,47 @@ const AdminProfile = () => {
   return (
     <AdminLayout>
       {/* Header */}
-      <div className="mb-6 md:mb-8">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">Admin Profile</h1>
-          <p className="text-sm md:text-base text-gray-600">Manage your profile information and password</p>
-        </div>
+      <div className="mb-4">
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-1">Admin Profile</h1>
+        <p className="text-sm text-gray-600">Manage your profile information and password</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Profile Card */}
-        <div className="lg:col-span-1 space-y-6">
+        <div className="lg:col-span-1 space-y-4">
           <Card className="overflow-hidden">
-            <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-6 text-white">
+            <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-4 text-white">
               <div className="text-center">
-                <div className="w-24 h-24 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center border-4 border-white/20">
-                  <span className="text-3xl font-bold text-white">
+                <div className="w-16 h-16 mx-auto mb-2 bg-white/20 rounded-full flex items-center justify-center border-2 border-white/20">
+                  <span className="text-xl font-bold text-white">
                     {profile.firstName.charAt(0)}{profile.lastName.charAt(0)}
                   </span>
                 </div>
-                <h2 className="text-xl font-semibold">{profile.firstName} {profile.lastName}</h2>
-                <p className="text-blue-100">Main Administrator</p>
+                <h2 className="text-base font-semibold">{profile.firstName} {profile.lastName}</h2>
+                <p className="text-xs text-blue-100">Main Administrator</p>
                 <div className="flex justify-center gap-2 mt-2">
-                  <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                  <Badge variant="secondary" className="bg-white/20 text-white border-white/30 text-[10px] px-2 py-0">
                     {profile.isActive ? 'Active' : 'Inactive'}
                   </Badge>
-                  <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                  <Badge variant="secondary" className="bg-white/20 text-white border-white/30 text-[10px] px-2 py-0">
                     {profile.isVerified ? 'Verified' : 'Unverified'}
                   </Badge>
                 </div>
               </div>
             </div>
-            <CardContent className="p-6 space-y-4">
-              <div className="flex items-center space-x-3">
-                <Mail className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-600">No email configured</span>
+            <CardContent className="p-4 space-y-2 text-xs">
+              <div className="flex items-center space-x-2">
+                <Mail className="w-3.5 h-3.5 text-gray-400" />
+                <span className="break-all">{profile.email || 'No email configured'}</span>
               </div>
               <div className="flex items-center space-x-3">
-                <Phone className="w-4 h-4 text-gray-400" />
-                <span className="text-sm">{profile.phone}</span>
-              </div>
-              <div className="flex items-center space-x-3">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <span className="text-sm">Joined {formatDate(profile.createdAt)}</span>
+                <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                <span>Joined {formatDate(profile.createdAt)}</span>
               </div>
               {profile.lastLogin && (
                 <div className="flex items-center space-x-3">
-                  <User className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm">Last login: {formatDateTime(profile.lastLogin)}</span>
+                  <User className="w-3.5 h-3.5 text-gray-400" />
+                  <span>Last login: {formatDateTime(profile.lastLogin)}</span>
                 </div>
               )}
             </CardContent>
@@ -271,12 +263,12 @@ const AdminProfile = () => {
         </div>
 
         {/* Profile Details */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4">
           {/* Basic Information */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg flex items-center">
-                <User className="w-5 h-5 mr-2" />
+            <CardHeader className="flex flex-row items-center justify-between p-4 pb-2 space-y-0">
+              <CardTitle className="text-base flex items-center">
+                <User className="w-4 h-4 mr-2" />
                 Basic Information
               </CardTitle>
               {!isEditing ? (
@@ -305,8 +297,8 @@ const AdminProfile = () => {
                 </div>
               )}
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <CardContent className="p-4 pt-2 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="firstName" className="text-sm font-medium">First Name</Label>
                   {isEditing ? (
@@ -314,10 +306,10 @@ const AdminProfile = () => {
                       id="firstName"
                       value={editProfile.firstName || ''}
                       onChange={(e) => setEditProfile(prev => ({ ...prev, firstName: e.target.value }))}
-                      className="mt-2"
+                      className="mt-1 h-9"
                     />
                   ) : (
-                    <p className="mt-2 text-sm text-gray-600">{profile.firstName}</p>
+                    <p className="mt-1 text-sm text-gray-600">{profile.firstName}</p>
                   )}
                 </div>
                 <div>
@@ -327,48 +319,40 @@ const AdminProfile = () => {
                       id="lastName"
                       value={editProfile.lastName || ''}
                       onChange={(e) => setEditProfile(prev => ({ ...prev, lastName: e.target.value }))}
-                      className="mt-2"
+                      className="mt-1 h-9"
                     />
                   ) : (
-                    <p className="mt-2 text-sm text-gray-600">{profile.lastName}</p>
+                    <p className="mt-1 text-sm text-gray-600">{profile.lastName}</p>
                   )}
                 </div>
               </div>
               <div>
-                <Label htmlFor="phone" className="text-sm font-medium">Phone Number</Label>
-                {isEditing ? (
-                  <Input
-                    id="phone"
-                    value={editProfile.phone || ''}
-                    onChange={(e) => setEditProfile(prev => ({ ...prev, phone: e.target.value }))}
-                    className="mt-2"
-                  />
-                ) : (
-                  <p className="mt-2 text-sm text-gray-600">{profile.phone}</p>
-                )}
+                <Label className="text-sm font-medium">Email</Label>
+                <p className="mt-1 text-sm text-gray-600">{profile.email || '—'}</p>
               </div>
             </CardContent>
           </Card>
 
           {/* Change Password */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center">
-                <Key className="w-5 h-5 mr-2" />
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="text-base flex items-center">
+                <Key className="w-4 h-4 mr-2" />
                 Change Password
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardContent className="p-4 pt-2 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="currentPassword" className="text-sm font-medium">Current Password</Label>
-                  <div className="relative mt-2">
+                  <div className="relative mt-1">
                     <Input
                       id="currentPassword"
                       type={showPassword ? "text" : "password"}
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       placeholder="Enter current password"
+                      className="h-9"
                     />
                     <Button
                       type="button"
@@ -389,7 +373,7 @@ const AdminProfile = () => {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Enter new password"
-                    className="mt-2"
+                    className="mt-1 h-9"
                   />
                 </div>
               </div>
@@ -401,7 +385,7 @@ const AdminProfile = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Confirm new password"
-                  className="mt-2"
+                  className="mt-1 h-9"
                 />
               </div>
               <Button 
@@ -424,31 +408,6 @@ const AdminProfile = () => {
             </CardContent>
           </Card>
 
-          {/* Logout Section */}
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                    <LogOut className="w-5 h-5 text-red-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900">Logout</h4>
-                    <p className="text-sm text-gray-600">Sign out of your admin account</p>
-                  </div>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="text-red-600 border-red-300 hover:bg-red-100 hover:text-red-700"
-                  onClick={handleLogout}
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Logout
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </AdminLayout>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -390,22 +391,22 @@ const AddVehicleForm = ({ mode = 'create', initial, existingImages = [], onSubmi
     e.preventDefault();
 
     if (!selectedVehicleCategory) {
-      alert('Please select a vehicle category');
+      toast({ title: "Check vehicle details", description: 'Please select a vehicle category', variant: "destructive" });
       return;
     }
 
     if (!formData.pricingReference?.vehicleType || !formData.pricingReference?.vehicleModel) {
-      alert('Please select vehicle variant and model for pricing');
+      toast({ title: "Check vehicle details", description: 'Please select vehicle variant and model for pricing', variant: "destructive" });
       return;
     }
 
     if (!isPricingComplete()) {
-      alert('Both one-way and return trip pricing must be available to add this vehicle. Please contact admin if pricing is incomplete.');
+      toast({ title: "Check vehicle details", description: 'Both one-way and return trip pricing must be available to add this vehicle. Please contact admin if pricing is incomplete.', variant: "destructive" });
       return;
     }
 
     if (!formData.vehicleLocation?.address || !formData.vehicleLocation?.latitude || !formData.vehicleLocation?.longitude) {
-      alert('Please search and select your vehicle base location from the suggestions');
+      toast({ title: "Check vehicle details", description: 'Please search and select your vehicle base location from the suggestions', variant: "destructive" });
       return;
     }
 

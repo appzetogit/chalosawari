@@ -54,13 +54,14 @@ const Bookings = () => {
   const [isDownloading, setIsDownloading] = useState(false);
 
   // Fetch user bookings
-  const fetchBookings = async () => {
+  // background = refresh without the full-page loader (app came back to the foreground)
+  const fetchBookings = async (background = false) => {
     try {
-      setIsLoading(true);
+      if (!background) setIsLoading(true);
       setError(null);
-      
-      // Get all bookings for the user
-      const response = await apiService.getUserBookings();
+
+      // ponytail: latest 100, no paging UI; add "load more" if users ever have more
+      const response = await apiService.getUserBookings(null, 1, 100);
       
       if (process.env.NODE_ENV === 'development') {
         console.log('Bookings API response:', response);
@@ -116,7 +117,7 @@ const Bookings = () => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isAuthenticated) {
-        fetchBookings();
+        fetchBookings(true);
       }
     };
 
@@ -407,14 +408,14 @@ const Bookings = () => {
   const downloadReceipt = async (booking) => {
     try {
       setIsDownloading(true);
-      const token = localStorage.getItem('token') || localStorage.getItem('userToken') || localStorage.getItem('authToken');
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}/bookings/${booking._id}/receipt`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+      // Raw fetch (binary PDF), so refresh an expired token ourselves and retry once
+      const getReceipt = () => fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}/bookings/${booking._id}/receipt`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
       });
+      let response = await getReceipt();
+      if (response.status === 401 && await apiService.refreshAuth('user')) {
+        response = await getReceipt();
+      }
 
       if (response.ok) {
         const contentType = response.headers.get('content-type');
@@ -578,7 +579,7 @@ const Bookings = () => {
               <p className="text-red-600 mb-3 text-sm font-medium">{error}</p>
               <Button 
                 variant="outline" 
-                onClick={fetchBookings}
+                onClick={() => fetchBookings()}
                 className="text-red-600 border-red-300 hover:bg-red-50 text-xs rounded-xl"
               >
                 Try Again

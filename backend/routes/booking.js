@@ -3,7 +3,6 @@ const { body, param, query } = require('express-validator');
 const {
   createBooking,
   getBookingReceipt,
-  cancelBooking,
   collectCashPayment
 } = require('../controllers/bookingController');
 const { protect, protectDriver } = require('../middleware/auth');
@@ -34,11 +33,7 @@ router.post('/', [
 // Get booking receipt
 router.get('/:id/receipt', protect, getBookingReceipt);
 
-// Cancel booking
-router.put('/:id/cancel', [
-  param('id').isMongoId().withMessage('Invalid booking ID'),
-  body('reason').optional().isString().withMessage('Reason must be a string')
-], validate, protect, cancelBooking);
+// Users cancel through PUT /api/user/bookings/:id/request-cancellation (admin approves + refunds)
 
 // Collect cash payment (for partial payment bookings)
 router.put('/:id/collect-cash-payment', [

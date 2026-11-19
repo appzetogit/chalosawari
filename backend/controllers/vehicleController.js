@@ -2,6 +2,21 @@ const Vehicle = require('../models/Vehicle');
 const Driver = require('../models/Driver');
 const Booking = require('../models/Booking');
 const asyncHandler = require('../middleware/asyncHandler');
+const { bookedVehicleIds } = require('../utils/bookingOverlap');
+
+// What public (user-facing) vehicle endpoints may show about a driver / vehicle
+const PUBLIC_DRIVER_SELECT = 'firstName lastName rating reviewCount profilePicture isActive';
+const PUBLIC_DRIVER_PROJECTION = { firstName: 1, lastName: 1, rating: 1, reviewCount: 1, profilePicture: 1, isActive: 1 };
+const PRIVATE_VEHICLE_SELECT = '-documents -adminNotes -rejectionReason -maintenance';
+const PRIVATE_VEHICLE_PROJECTION = { documents: 0, adminNotes: 0, rejectionReason: 0, maintenance: 0 };
+
+// Users may only see/book approved, active vehicles whose driver account is active
+const bookableFilter = async (extra = {}) => ({
+  ...extra,
+  isActive: true,
+  approvalStatus: 'approved',
+  driver: { $in: await Driver.find({ isActive: true }).distinct('_id') }
+});
 
 // @desc    Create new vehicle
 // @route   POST /api/vehicles
@@ -731,6 +746,7 @@ const searchVehicles = asyncHandler(async (req, res) => {
     page: parseInt(page),
     limit: parseInt(limit),
     sort: { createdAt: -1 }, // Sort by newest first
+    select: PRIVATE_VEHICLE_SELECT,
     populate: {
       path: 'driver',
       select: 'firstName lastName rating isActive'
@@ -897,9 +913,10 @@ const searchVehicles = asyncHandler(async (req, res) => {
 // @access  Public
 const getVehicleById = asyncHandler(async (req, res) => {
   const vehicle = await Vehicle.findById(req.params.id)
+    .select(PRIVATE_VEHICLE_SELECT)
     .populate({
       path: 'driver',
-      select: 'firstName lastName rating isOnline status'
+      select: PUBLIC_DRIVER_SELECT
     });
 
   if (!vehicle) {
@@ -925,86 +942,17 @@ const getVehicleBus = asyncHandler(async (req, res) => {
   try {
     const { date, returnDate } = req.query; // Get dates from query parameters
     
-    const buses = await Vehicle.find({ 
-      type: 'bus',
-      approvalStatus: { $in: ['approved', 'pending'] },
-      isActive: true
-    })
-      .populate({
-        path: 'driver',
-        select: 'firstName lastName rating isOnline isActive'
-      })
+    const buses = await Vehicle.find(await bookableFilter({ type: 'bus' }))
+      .select(PRIVATE_VEHICLE_SELECT)
+      .populate({ path: 'driver', select: PUBLIC_DRIVER_SELECT })
       .sort({ createdAt: -1 });
     
     let availableBuses = buses;
     
-    // If a specific date is requested, filter out vehicles already booked for that date
+    // Drop vehicles already booked for any day of this trip (round trips block every day in between)
     if (date) {
-      console.log(`🔍 Filtering buses for date: ${date}`);
-      
-      // Get all active bookings for the requested date (including pending and round trips)
-      const Booking = require('../models/Booking');
-      const activeBookings = await Booking.find({
-        $or: [
-          { 'tripDetails.date': date }, // Check pickup date
-          { 'tripDetails.returnDate': date } // Check return date for round trips
-        ],
-        status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] }, // Include all statuses that make vehicle unavailable
-        vehicle: { $in: availableBuses.map(bus => bus._id) } // Only check buses we have
-      }).select('vehicle');
-      
-      const bookedVehicleIds = activeBookings.map(booking => booking.vehicle.toString());
-      console.log(`🔍 Found ${bookedVehicleIds.length} buses already booked/pending for ${date} (including round trips)`);
-      
-      // Filter out buses that are already booked for this date
-      availableBuses = availableBuses.filter(bus => 
-        !bookedVehicleIds.includes(bus._id.toString())
-      );
-      
-      console.log(`🔍 After date filtering: ${availableBuses.length} buses available for ${date}`);
-    }
-    
-    // If returnDate is also provided (round trip), do comprehensive date range overlap checking
-    if (returnDate && returnDate !== date) {
-      console.log(`🔍 Checking for date range overlaps: ${date} to ${returnDate}`);
-      
-      const Booking = require('../models/Booking');
-      
-      // Get all active bookings that might overlap with our date range
-      const overlappingBookings = await Booking.find({
-        status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] },
-        vehicle: { $in: availableBuses.map(bus => bus._id) }
-      }).select('vehicle tripDetails.date tripDetails.returnDate');
-      
-      console.log(`🔍 Found ${overlappingBookings.length} total active bookings to check for overlaps`);
-      
-      // Filter out vehicles with overlapping date ranges
-      const vehiclesWithOverlaps = new Set();
-      
-      overlappingBookings.forEach(booking => {
-        const bookingStart = new Date(booking.tripDetails.date);
-        const bookingEnd = booking.tripDetails.returnDate ? new Date(booking.tripDetails.returnDate) : bookingStart;
-        const requestStart = new Date(date);
-        const requestEnd = new Date(returnDate);
-        
-        // Check if date ranges overlap
-        // Overlap occurs when: (start1 <= end2) AND (start2 <= end1)
-        const hasOverlap = (bookingStart <= requestEnd) && (requestStart <= bookingEnd);
-        
-        if (hasOverlap) {
-          vehiclesWithOverlaps.add(booking.vehicle.toString());
-          console.log(`🔍 Bus ${booking.vehicle} has overlapping booking: ${bookingStart.toDateString()} to ${bookingEnd.toDateString()}`);
-        }
-      });
-      
-      console.log(`🔍 Found ${vehiclesWithOverlaps.size} buses with overlapping date ranges`);
-      
-      // Filter out buses with overlapping bookings
-      availableBuses = availableBuses.filter(bus => 
-        !vehiclesWithOverlaps.has(bus._id.toString())
-      );
-      
-      console.log(`🔍 After overlap filtering: ${availableBuses.length} buses available for date range ${date} to ${returnDate}`);
+      const booked = await bookedVehicleIds(Booking, date, returnDate);
+      availableBuses = availableBuses.filter(v => !booked.has(v._id.toString()));
     }
 
     // Populate computed pricing for each bus
@@ -1266,86 +1214,17 @@ const getVehicleCar = asyncHandler(async (req, res) => {
   try {
     const { date, returnDate } = req.query; // Get dates from query parameters
     
-    const cars = await Vehicle.find({ 
-      type: 'car',
-      approvalStatus: { $in: ['approved', 'pending'] },
-      isActive: true
-    })
-      .populate({
-        path: 'driver',
-        select: 'firstName lastName rating isOnline isActive'
-      })
+    const cars = await Vehicle.find(await bookableFilter({ type: 'car' }))
+      .select(PRIVATE_VEHICLE_SELECT)
+      .populate({ path: 'driver', select: PUBLIC_DRIVER_SELECT })
       .sort({ createdAt: -1 });
 
     let availableCars = cars;
     
-    // If a specific date is requested, filter out vehicles already booked for that date
+    // Drop vehicles already booked for any day of this trip (round trips block every day in between)
     if (date) {
-      console.log(`🔍 Filtering cars for date: ${date}`);
-      
-      // Get all active bookings for the requested date (including pending and round trips)
-      const Booking = require('../models/Booking');
-      const activeBookings = await Booking.find({
-        $or: [
-          { 'tripDetails.date': date }, // Check pickup date
-          { 'tripDetails.returnDate': date } // Check return date for round trips
-        ],
-        status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] }, // Include all statuses that make vehicle unavailable
-        vehicle: { $in: availableCars.map(car => car._id) } // Only check cars we have
-      }).select('vehicle');
-      
-      const bookedVehicleIds = activeBookings.map(booking => booking.vehicle.toString());
-      console.log(`🔍 Found ${bookedVehicleIds.length} cars already booked/pending for ${date} (including round trips)`);
-      
-      // Filter out cars that are already booked for this date
-      availableCars = availableCars.filter(car => 
-        !bookedVehicleIds.includes(car._id.toString())
-      );
-      
-      console.log(`🔍 After date filtering: ${availableCars.length} cars available for ${date}`);
-    }
-    
-    // If returnDate is also provided (round trip), do comprehensive date range overlap checking
-    if (returnDate && returnDate !== date) {
-      console.log(`🔍 Checking for date range overlaps: ${date} to ${returnDate}`);
-      
-      const Booking = require('../models/Booking');
-      
-      // Get all active bookings that might overlap with our date range
-      const overlappingBookings = await Booking.find({
-        status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] },
-        vehicle: { $in: availableCars.map(car => car._id) }
-      }).select('vehicle tripDetails.date tripDetails.returnDate');
-      
-      console.log(`🔍 Found ${overlappingBookings.length} total active bookings to check for overlaps`);
-      
-      // Filter out vehicles with overlapping date ranges
-      const vehiclesWithOverlaps = new Set();
-      
-      overlappingBookings.forEach(booking => {
-        const bookingStart = new Date(booking.tripDetails.date);
-        const bookingEnd = booking.tripDetails.returnDate ? new Date(booking.tripDetails.returnDate) : bookingStart;
-        const requestStart = new Date(date);
-        const requestEnd = new Date(returnDate);
-        
-        // Check if date ranges overlap
-        // Overlap occurs when: (start1 <= end2) AND (start2 <= end1)
-        const hasOverlap = (bookingStart <= requestEnd) && (requestStart <= bookingEnd);
-        
-        if (hasOverlap) {
-          vehiclesWithOverlaps.add(booking.vehicle.toString());
-          console.log(`🔍 Car ${booking.vehicle} has overlapping booking: ${bookingStart.toDateString()} to ${bookingEnd.toDateString()}`);
-        }
-      });
-      
-      console.log(`🔍 Found ${vehiclesWithOverlaps.size} cars with overlapping date ranges`);
-      
-      // Filter out cars with overlapping bookings
-      availableCars = availableCars.filter(car => 
-        !vehiclesWithOverlaps.has(car._id.toString())
-      );
-      
-      console.log(`🔍 After overlap filtering: ${availableCars.length} cars available for date range ${date} to ${returnDate}`);
+      const booked = await bookedVehicleIds(Booking, date, returnDate);
+      availableCars = availableCars.filter(v => !booked.has(v._id.toString()));
     }
 
     // Populate computed pricing for each car
@@ -1578,6 +1457,7 @@ const getNearbyVehicles = asyncHandler(async (req, res) => {
   query.driver = { $in: activeDriverIds };
 
   const vehicles = await Vehicle.find(query)
+    .select(PRIVATE_VEHICLE_SELECT)
     .populate({
       path: 'driver',
       select: 'firstName lastName rating isOnline isActive'
@@ -1686,7 +1566,7 @@ const getVehiclesByLocation = asyncHandler(async (req, res) => {
     date,
     returnDate,
     page = 1,
-    limit = 20
+    limit = 100 // the list UI has no pagination; 100 is the validator's max
   } = req.query;
 
   // Validate coordinates
@@ -1744,13 +1624,18 @@ const getVehiclesByLocation = asyncHandler(async (req, res) => {
         }
       },
       {
+        // Public endpoint: expose only public driver fields (never password/bank/documents/FCM tokens)
         $lookup: {
           from: 'drivers',
-          localField: 'driver',
-          foreignField: '_id',
+          let: { driverId: '$driver' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$driverId'] } } },
+            { $project: PUBLIC_DRIVER_PROJECTION }
+          ],
           as: 'driverInfo'
         }
       },
+      { $project: PRIVATE_VEHICLE_PROJECTION },
       {
         $unwind: '$driverInfo'
       },
@@ -1784,8 +1669,8 @@ const getVehiclesByLocation = asyncHandler(async (req, res) => {
           ]
         }
       }
-    }).populate('driver', 'firstName lastName rating');
-    
+    }).select(PRIVATE_VEHICLE_SELECT).populate('driver', PUBLIC_DRIVER_SELECT);
+
     console.log(`✅ Fallback query completed. Found ${fallbackVehicles.length} vehicles`);
     
     // Add distance calculation manually for fallback results
@@ -1813,15 +1698,25 @@ const getVehiclesByLocation = asyncHandler(async (req, res) => {
   // Fallback: If no vehicles found within radius (or coords are [0,0]), load all approved vehicles
   if (availableVehicles.length === 0) {
     console.log(`ℹ️ Location search found 0 vehicles. Loading all active vehicles for type: ${vehicleType || 'all'}`);
+    // Only vehicles whose base location is unknown — a vehicle with a known location far away must not show up
     const generalQuery = {
       isActive: true,
-      approvalStatus: { $in: ['approved', 'pending'] }
+      approvalStatus: 'approved',
+      driver: { $in: activeDriverIds },
+      $or: [
+        { 'vehicleLocation.coordinates': { $exists: false } },
+        { 'vehicleLocation.coordinates': [0, 0] }
+      ]
     };
     if (vehicleType) {
       generalQuery.type = vehicleType;
     }
+    if (passengers) {
+      generalQuery.seatingCapacity = { $gte: parseInt(passengers) };
+    }
     const fallbackAll = await Vehicle.find(generalQuery)
-      .populate('driver', 'firstName lastName rating')
+      .select(PRIVATE_VEHICLE_SELECT)
+      .populate('driver', PUBLIC_DRIVER_SELECT)
       .sort({ createdAt: -1 });
 
     availableVehicles = fallbackAll.map(vehicle => ({
@@ -1831,69 +1726,10 @@ const getVehiclesByLocation = asyncHandler(async (req, res) => {
     }));
   }
 
-  // Apply date-based filtering if dates are provided
+  // Drop vehicles already booked for any day of this trip (round trips block every day in between)
   if (date) {
-    console.log(`🔍 Filtering vehicles for date: ${date}`);
-    
-    // Get all active bookings for the requested date (including pending and round trips)
-    const activeBookings = await Booking.find({
-      $or: [
-        { 'tripDetails.date': date }, // Check pickup date
-        { 'tripDetails.returnDate': date } // Check return date for round trips
-      ],
-      status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] } // Include all statuses that make vehicle unavailable
-    }).select('vehicle');
-    
-    const bookedVehicleIds = activeBookings.map(booking => booking.vehicle.toString());
-    console.log(`🔍 Found ${bookedVehicleIds.length} vehicles already booked/pending for ${date} (including round trips)`);
-    
-    // Filter out vehicles that are already booked for this date
-    availableVehicles = availableVehicles.filter(vehicle => 
-      !bookedVehicleIds.includes(vehicle._id.toString())
-    );
-    
-    console.log(`🔍 After date filtering: ${availableVehicles.length} vehicles available`);
-  }
-  
-  // If returnDate is also provided (round trip), do comprehensive date range overlap checking
-  if (returnDate && returnDate !== date) {
-    console.log(`🔍 Checking for date range overlaps: ${date} to ${returnDate}`);
-    
-    // Get all active bookings that might overlap with our date range
-    const overlappingBookings = await Booking.find({
-      status: { $in: ['pending', 'accepted', 'started', 'cancellation_requested'] },
-      vehicle: { $in: availableVehicles.map(vehicle => vehicle._id) }
-    }).select('vehicle tripDetails.date tripDetails.returnDate');
-    
-    console.log(`🔍 Found ${overlappingBookings.length} total active bookings to check for overlaps`);
-    
-    // Filter out vehicles with overlapping date ranges
-    const vehiclesWithOverlaps = new Set();
-    
-    overlappingBookings.forEach(booking => {
-      const bookingStart = new Date(booking.tripDetails.date);
-      const bookingEnd = booking.tripDetails.returnDate ? new Date(booking.tripDetails.returnDate) : bookingStart;
-      const requestStart = new Date(date);
-      const requestEnd = new Date(returnDate);
-      
-      // Check if date ranges overlap
-      // Overlap occurs when: (start1 <= end2) AND (start2 <= end1)
-      const hasOverlap = (bookingStart <= requestEnd) && (requestStart <= bookingEnd);
-      
-      if (hasOverlap) {
-        vehiclesWithOverlaps.add(booking.vehicle.toString());
-        console.log(`🔍 Vehicle ${booking.vehicle} has overlapping booking: ${bookingStart.toDateString()} to ${bookingEnd.toDateString()}`);
-      }
-    });
-    
-    console.log(`🔍 Found ${vehiclesWithOverlaps.size} vehicles with overlapping date ranges`);
-    
-    // Filter out vehicles with overlapping bookings
-    availableVehicles = availableVehicles.filter(vehicle => 
-      !vehiclesWithOverlaps.has(vehicle._id.toString())
-    );
-    
-    console.log(`🔍 After overlap filtering: ${availableVehicles.length} vehicles available for date range ${date} to ${returnDate}`);
+    const booked = await bookedVehicleIds(Booking, date, returnDate);
+    availableVehicles = availableVehicles.filter(vehicle => !booked.has(vehicle._id.toString()));
   }
 
   // Apply pagination to the filtered results

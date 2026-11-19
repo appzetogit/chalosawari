@@ -305,50 +305,11 @@ class VehicleApiService {
     return this.makeRequest(`/vehicles/${vehicleId}`);
   }
 
-  // Populate computed pricing for vehicles
+  // Vehicles already carry their pricing (Vehicle Settings → Vehicle Models syncs it into every vehicle),
+  // and the booking API charges from that same vehicle.pricing. So no extra requests: the old version made
+  // 2 calls per vehicle on every list load/refresh and could show a fare different from the one charged.
   async populateVehiclePricing(vehicles: any[]): Promise<any[]> {
-    // Fetch latest pricing data for each vehicle to ensure we have real-time pricing
-    const vehiclesWithPricing = await Promise.all(
-      vehicles.map(async (vehicle) => {
-        try {
-          if (vehicle.pricingReference) {
-            // Fetch latest pricing data for both one-way and return trips
-            const [oneWayResponse, returnResponse] = await Promise.all([
-              this.makeRequest(
-                `/vehicle-pricing/calculate?category=${vehicle.pricingReference.category}&vehicleType=${vehicle.pricingReference.vehicleType}&vehicleModel=${vehicle.pricingReference.vehicleModel}&tripType=one-way`
-              ),
-              this.makeRequest(
-                `/vehicle-pricing/calculate?category=${vehicle.pricingReference.category}&vehicleType=${vehicle.pricingReference.vehicleType}&vehicleModel=${vehicle.pricingReference.vehicleModel}&tripType=return`
-              )
-            ]);
-            
-            if (oneWayResponse.success && oneWayResponse.data && returnResponse.success && returnResponse.data) {
-              const oneWayPricing = oneWayResponse.data as any;
-              const returnPricing = returnResponse.data as any;
-              
-              // Update the vehicle's pricing with the latest data
-              vehicle.pricing = {
-                distancePricing: {
-                  oneWay: oneWayPricing.distancePricing,
-                  return: returnPricing.distancePricing
-                },
-                lastUpdated: new Date().toISOString()
-              };
-              
-              console.log(`✅ Updated real-time pricing for vehicle ${vehicle._id}:`, vehicle.pricing);
-            } else {
-              console.warn(`⚠️ Could not fetch pricing for vehicle ${vehicle._id}, using existing pricing`);
-            }
-          }
-        } catch (error) {
-          console.error(`❌ Error updating pricing for vehicle ${vehicle._id}:`, error);
-        }
-        
-        return vehicle;
-      })
-    );
-    
-    return vehiclesWithPricing;
+    return vehicles;
   }
 
   // Update vehicle

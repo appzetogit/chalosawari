@@ -78,7 +78,8 @@ const sendPushToDoc = async (Model, id, payload) => {
 // Send to every doc with a mobile token across the given models (User and/or Driver).
 // Tokens are deduped across models, so a phone saved on both a User and a Driver gets it once.
 const sendPushToAudience = async (models, payload) => {
-  const filter = { 'fcmTokenMobile.0': { $exists: true } };
+  // Broadcasts respect the user's "Offers & announcements" switch (booking pushes go via sendPushToDoc, always)
+  const filter = { 'fcmTokenMobile.0': { $exists: true }, 'preferences.notifications.push': { $ne: false } };
   const docs = (await Promise.all(models.map((M) => M.find(filter).select('+fcmTokenMobile').lean()))).flat();
   return sendToTokens(models, filter, tokensOf(docs), payload);
 };

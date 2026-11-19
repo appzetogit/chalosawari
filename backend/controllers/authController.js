@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { sendOTP } = require('../utils/notifications');
 const crypto = require('crypto');
 const { saveFcmToken, removeFcmToken } = require('../utils/fcm');
+const { userOtps, driverOtps } = require('../utils/otpStore');
 
 // Only our web frontend sends platform 'web' (src/lib/fcm.ts); native apps may send 'mobile', 'android', or nothing
 const fcmPlatform = (p) => (String(p).toLowerCase() === 'web' ? 'web' : 'mobile');
@@ -125,11 +126,8 @@ const sendOTPForAuth = async (req, res, next) => {
     }
 
     // Store OTP in temporary store
-    if (!global.tempOTPStore) {
-      global.tempOTPStore = new Map();
-    }
 
-    global.tempOTPStore.set(normalizedPhone, {
+    await userOtps.set(normalizedPhone, {
       code,
       expiresAt,
       attempts: 0,
@@ -139,12 +137,6 @@ const sendOTPForAuth = async (req, res, next) => {
       isTestUser: isTestUser
     });
 
-    // Clean up expired OTPs (only for non-test users)
-    for (const [key, value] of global.tempOTPStore.entries()) {
-      if (!value.isTestUser && value.expiresAt < new Date()) {
-        global.tempOTPStore.delete(key);
-      }
-    }
 
     // Send OTP via SMS (skip for test users)
     if (!isTestUser) {
@@ -152,7 +144,7 @@ const sendOTPForAuth = async (req, res, next) => {
         await sendOTP(normalizedPhone, code);
       } catch (error) {
         console.error('SMS OTP sending failed:', error);
-        global.tempOTPStore.delete(normalizedPhone);
+        await userOtps.delete(normalizedPhone);
         return res.status(500).json({
           success: false,
           error: {
@@ -207,12 +199,9 @@ const verifyOTPAndProceed = async (req, res, next) => {
     // Check if OTP exists in temporary store
     const defaultOtp = getDefaultOTPForPhone(normalizedPhone);
 
-    if (!global.tempOTPStore || !global.tempOTPStore.has(normalizedPhone)) {
+    if (!await userOtps.has(normalizedPhone)) {
       if (defaultOtp && defaultOtp === otp) {
-        if (!global.tempOTPStore) {
-          global.tempOTPStore = new Map();
-        }
-        global.tempOTPStore.set(normalizedPhone, {
+        await userOtps.set(normalizedPhone, {
           code: defaultOtp,
           expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           attempts: 0,
@@ -231,11 +220,11 @@ const verifyOTPAndProceed = async (req, res, next) => {
       }
     }
 
-    const otpData = global.tempOTPStore.get(normalizedPhone);
+    const otpData = await userOtps.get(normalizedPhone);
 
     // Check if OTP is expired (skip expiry check for test users)
     if (!otpData.isTestUser && otpData.expiresAt < new Date()) {
-      global.tempOTPStore.delete(normalizedPhone);
+      await userOtps.delete(normalizedPhone);
       return res.status(400).json({
         success: false,
         error: {
@@ -249,10 +238,10 @@ const verifyOTPAndProceed = async (req, res, next) => {
     const isOtpValid = otpData.code === otp || (defaultOtp && defaultOtp === otp);
     if (!isOtpValid) {
       otpData.attempts += 1;
-      global.tempOTPStore.set(normalizedPhone, otpData);
+      await userOtps.set(normalizedPhone, otpData);
 
       if (otpData.attempts >= 3) {
-        global.tempOTPStore.delete(normalizedPhone);
+        await userOtps.delete(normalizedPhone);
         return res.status(400).json({
           success: false,
           error: {
@@ -288,7 +277,7 @@ const verifyOTPAndProceed = async (req, res, next) => {
       }
 
       if (!otpData.isTestUser) {
-        global.tempOTPStore.delete(normalizedPhone);
+        await userOtps.delete(normalizedPhone);
       }
 
       console.log(`✅ Existing user verified & logged in directly: ${normalizedPhone}`);
@@ -317,7 +306,7 @@ const verifyOTPAndProceed = async (req, res, next) => {
       await newUser.generateVerificationCode();
 
       if (!otpData.isTestUser) {
-        global.tempOTPStore.delete(normalizedPhone);
+        await userOtps.delete(normalizedPhone);
       }
 
       console.log(`🎉 New user created & logged in: ${normalizedPhone}`);
@@ -328,7 +317,7 @@ const verifyOTPAndProceed = async (req, res, next) => {
     // If new user and user details not yet passed, mark phone as verified for profile completion step
     otpData.verified = true;
     otpData.expiresAt = new Date(Date.now() + 15 * 60 * 1000); // time to fill the profile form
-    global.tempOTPStore.set(normalizedPhone, otpData);
+    await userOtps.set(normalizedPhone, otpData);
 
     return res.status(200).json({
       success: true,
@@ -364,7 +353,7 @@ const registerUser = async (req, res, next) => {
     const normalizedPhone = digits.slice(-10);
 
     // Phone must have passed /verify-otp first (it sets verified=true on the stored OTP)
-    const otpData = global.tempOTPStore && global.tempOTPStore.get(normalizedPhone);
+    const otpData = await userOtps.get(normalizedPhone);
     if (!otpData || !otpData.verified || (!otpData.isTestUser && otpData.expiresAt < new Date())) {
       return res.status(401).json({
         success: false,
@@ -403,9 +392,7 @@ const registerUser = async (req, res, next) => {
     const newUser = await User.create(userDataToSave);
     await newUser.generateVerificationCode();
 
-    if (global.tempOTPStore) {
-      global.tempOTPStore.delete(normalizedPhone);
-    }
+    await userOtps.delete(normalizedPhone);
 
     console.log(`🎉 New user registered successfully: ${normalizedPhone}`);
     await storeLoginFcm(User, newUser._id, req.body);
@@ -449,10 +436,10 @@ const resendOTP = async (req, res, next) => {
     }
 
     // Remove existing OTP if any (but keep test user OTPs)
-    if (global.tempOTPStore && global.tempOTPStore.has(normalizedPhone)) {
-      const existingOtpData = global.tempOTPStore.get(normalizedPhone);
+    if (await userOtps.has(normalizedPhone)) {
+      const existingOtpData = await userOtps.get(normalizedPhone);
       if (!existingOtpData.isTestUser) {
-        global.tempOTPStore.delete(normalizedPhone);
+        await userOtps.delete(normalizedPhone);
       }
     }
 
@@ -468,11 +455,8 @@ const resendOTP = async (req, res, next) => {
     }
 
     // Store new OTP
-    if (!global.tempOTPStore) {
-      global.tempOTPStore = new Map();
-    }
 
-    global.tempOTPStore.set(normalizedPhone, {
+    await userOtps.set(normalizedPhone, {
       code,
       expiresAt,
       attempts: 0,
@@ -488,7 +472,7 @@ const resendOTP = async (req, res, next) => {
         await sendOTP(normalizedPhone, code);
       } catch (error) {
         console.error('SMS OTP resend failed:', error);
-        global.tempOTPStore.delete(normalizedPhone);
+        await userOtps.delete(normalizedPhone);
         return res.status(500).json({
           success: false,
           error: {
@@ -570,11 +554,8 @@ const sendDriverOTP = async (req, res, next) => {
     }
 
     // Store OTP in temporary store
-    if (!global.tempDriverOTPStore) {
-      global.tempDriverOTPStore = new Map();
-    }
 
-    global.tempDriverOTPStore.set(normalizedPhone, {
+    await driverOtps.set(normalizedPhone, {
       code,
       expiresAt,
       attempts: 0,
@@ -583,12 +564,6 @@ const sendDriverOTP = async (req, res, next) => {
       isTestDriver: isTestDriver
     });
 
-    // Clean up expired OTPs (only for non-test drivers)
-    for (const [key, value] of global.tempDriverOTPStore.entries()) {
-      if (!value.isTestDriver && value.expiresAt < new Date()) {
-        global.tempDriverOTPStore.delete(key);
-      }
-    }
 
     // Send OTP via SMS (skip for test drivers)
     if (!isTestDriver) {
@@ -597,7 +572,7 @@ const sendDriverOTP = async (req, res, next) => {
         console.log(`📱 SMS sent successfully to ${normalizedPhone}`);
       } catch (error) {
         console.error('SMS OTP sending failed:', error);
-        global.tempDriverOTPStore.delete(normalizedPhone);
+        await driverOtps.delete(normalizedPhone);
         return res.status(500).json({
           success: false,
           error: {
@@ -650,12 +625,9 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
     // Check if OTP exists in temporary store
     const defaultOtp = getDefaultOTPForPhone(normalizedPhone);
 
-    if (!global.tempDriverOTPStore || !global.tempDriverOTPStore.has(normalizedPhone)) {
+    if (!await driverOtps.has(normalizedPhone)) {
       if (defaultOtp && defaultOtp === otp) {
-        if (!global.tempDriverOTPStore) {
-          global.tempDriverOTPStore = new Map();
-        }
-        global.tempDriverOTPStore.set(normalizedPhone, {
+        await driverOtps.set(normalizedPhone, {
           code: defaultOtp,
           expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
           attempts: 0,
@@ -674,11 +646,11 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
       }
     }
 
-    const otpData = global.tempDriverOTPStore.get(normalizedPhone);
+    const otpData = await driverOtps.get(normalizedPhone);
 
     // Check if OTP is expired (skip expiry check for test drivers)
     if (!otpData.isTestDriver && otpData.expiresAt < new Date()) {
-      global.tempDriverOTPStore.delete(normalizedPhone);
+      await driverOtps.delete(normalizedPhone);
       return res.status(400).json({
         success: false,
         error: {
@@ -692,10 +664,10 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
     const isOtpValid = otpData.code === otp || (defaultOtp && defaultOtp === otp);
     if (!isOtpValid) {
       otpData.attempts += 1;
-      global.tempDriverOTPStore.set(normalizedPhone, otpData);
+      await driverOtps.set(normalizedPhone, otpData);
 
       if (otpData.attempts >= 3) {
-        global.tempDriverOTPStore.delete(normalizedPhone);
+        await driverOtps.delete(normalizedPhone);
         return res.status(400).json({
           success: false,
           error: {
@@ -728,7 +700,7 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
 
       // Remove OTP now that registration info is provided
       if (!otpData.isTestDriver) {
-        global.tempDriverOTPStore.delete(normalizedPhone);
+        await driverOtps.delete(normalizedPhone);
       }
 
       // Create driver with provided info
@@ -779,7 +751,7 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
 
     // OTP is valid for existing driver - remove it from store (keep test driver OTPs)
     if (!otpData.isTestDriver) {
-      global.tempDriverOTPStore.delete(normalizedPhone);
+      await driverOtps.delete(normalizedPhone);
     } else {
       console.log(`🧪 Test driver OTP verified successfully: ${normalizedPhone}`);
     }
@@ -791,6 +763,17 @@ const verifyDriverOTPAndProceed = async (req, res, next) => {
         error: {
           message: 'Account is deactivated. Please contact support.',
           statusCode: 401
+        }
+      });
+    }
+
+    // Every driver API rejects unverified drivers, so a token would only cause a login → logout loop
+    if (!existingDriver.isVerified) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'Your driver account is under verification. Please contact support.',
+          statusCode: 403
         }
       });
     }
@@ -836,10 +819,10 @@ const resendDriverOTP = async (req, res, next) => {
     }
 
     // Remove existing OTP if any (but keep test driver OTPs)
-    if (global.tempDriverOTPStore && global.tempDriverOTPStore.has(normalizedPhone)) {
-      const existingOtpData = global.tempDriverOTPStore.get(normalizedPhone);
+    if (await driverOtps.has(normalizedPhone)) {
+      const existingOtpData = await driverOtps.get(normalizedPhone);
       if (!existingOtpData.isTestDriver) {
-        global.tempDriverOTPStore.delete(normalizedPhone);
+        await driverOtps.delete(normalizedPhone);
       }
     }
 
@@ -857,11 +840,8 @@ const resendDriverOTP = async (req, res, next) => {
     }
 
     // Store new OTP
-    if (!global.tempDriverOTPStore) {
-      global.tempDriverOTPStore = new Map();
-    }
 
-    global.tempDriverOTPStore.set(normalizedPhone, {
+    await driverOtps.set(normalizedPhone, {
       code,
       expiresAt,
       attempts: 0,
@@ -877,7 +857,7 @@ const resendDriverOTP = async (req, res, next) => {
         console.log(`📱 SMS resent successfully to ${normalizedPhone}`);
       } catch (error) {
         console.error('SMS OTP sending failed:', error);
-        global.tempDriverOTPStore.delete(normalizedPhone);
+        await driverOtps.delete(normalizedPhone);
         return res.status(500).json({
           success: false,
           error: {

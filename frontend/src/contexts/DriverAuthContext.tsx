@@ -205,6 +205,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
         setIsLoggedIn(false);
         setDriver(null);
         localStorage.removeItem('driverData');
+        localStorage.removeItem('driverDashboard');
         setIsLoading(false);
         return;
       }
@@ -222,6 +223,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       localStorage.removeItem('isDriverLoggedIn');
       localStorage.removeItem('driverPhone');
       localStorage.removeItem('driverData');
+      localStorage.removeItem('driverDashboard');
     } finally {
       setIsLoading(false);
     }
@@ -379,6 +381,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       localStorage.removeItem('isDriverLoggedIn');
       localStorage.removeItem('driverPhone');
       localStorage.removeItem('driverData');
+      localStorage.removeItem('driverDashboard');
       
       // Redirect to driver auth page
       window.location.href = '/driver/auth';
@@ -391,6 +394,7 @@ export const DriverAuthProvider: React.FC<DriverAuthProviderProps> = ({ children
       localStorage.removeItem('isDriverLoggedIn');
       localStorage.removeItem('driverPhone');
       localStorage.removeItem('driverData');
+      localStorage.removeItem('driverDashboard');
       window.location.href = '/driver/auth';
     }
   };

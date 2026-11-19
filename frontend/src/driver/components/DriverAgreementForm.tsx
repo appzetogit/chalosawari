@@ -68,8 +68,7 @@ const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
 
     try {
       const response = await apiService.acceptDriverAgreement({
-        agreements: agreements,
-        ipAddress: await getClientIP()
+        agreements: agreements // server records the IP itself
       });
 
       if (response.success) {
@@ -103,16 +102,6 @@ const DriverAgreementForm: React.FC<DriverAgreementFormProps> = ({
       setErrors([error.message || "Failed to submit agreement. Please try again."]);
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const getClientIP = async (): Promise<string> => {
-    try {
-      const response = await fetch('https://api.ipify.org?format=json');
-      const data = await response.json();
-      return data.ip || 'unknown';
-    } catch {
-      return 'unknown';
     }
   };
 

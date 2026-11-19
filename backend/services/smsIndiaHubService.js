@@ -114,45 +114,21 @@ class SMSIndiaHubService {
       console.log('SMSIndia Hub Response Data:', response.data);
 
       const resData = response.data;
-      const responseText = typeof resData === 'object' ? JSON.stringify(resData) : resData.toString();
-      
-      // Check for success indicators in the response (ErrorCode: '000' is SMSIndia Hub success)
-      if (
-        (resData && resData.ErrorCode === '000') ||
-        responseText.includes('Done') ||
-        responseText.includes('success') || 
-        responseText.includes('sent') || 
-        responseText.includes('accepted')
-      ) {
-        const msgId = resData?.MessageData?.[0]?.MessageId || `sms_${Date.now()}`;
+
+      // Only ErrorCode '000' is success; anything else (wrong key/template/sender, or an HTML error page) is a failure,
+      // never "assume sent" — that hid every failed OTP.
+      if (resData && resData.ErrorCode === '000') {
         return {
           success: true,
-          messageId: msgId,
+          messageId: resData.MessageData?.[0]?.MessageId || resData.JobId,
           status: 'sent',
           to: normalizedPhone,
-          body: message,
-          provider: 'SMSIndia Hub',
-          response: resData
-        };
-      } else if (
-        (resData && resData.ErrorCode && resData.ErrorCode !== '000') ||
-        responseText.includes('error') || 
-        responseText.includes('failed') || 
-        responseText.includes('invalid')
-      ) {
-        const errDetail = resData?.ErrorMessage || responseText;
-        throw new Error(`SMSIndia Hub API error (${resData?.ErrorCode || 'Error'}): ${errDetail}`);
-      } else {
-        return {
-          success: true,
-          messageId: `sms_${Date.now()}`,
-          status: 'sent',
-          to: normalizedPhone,
-          body: message,
-          provider: 'SMSIndia Hub',
-          response: resData
+          provider: 'SMSIndia Hub'
         };
       }
+      const detail = typeof resData === 'object' ? JSON.stringify(resData) : String(resData).slice(0, 300);
+      console.error(`SMSIndia Hub rejected OTP for ${normalizedPhone}: ${detail}`);
+      throw new Error(`SMSIndia Hub API error (${resData?.ErrorCode || 'unknown'}): ${resData?.ErrorMessage || 'unexpected response'}`);
 
     } catch (error) {
       // Handle specific error cases

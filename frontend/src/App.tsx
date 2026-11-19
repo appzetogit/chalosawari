@@ -3,43 +3,44 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import Bookings from "./pages/Bookings";
-import Help from "./pages/Help";
-import Profile from "./pages/Profile";
-import VehicleSearch from "./pages/VehicleSearch";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
-import TermsConditions from "./pages/TermsConditions";
-import CancellationPolicy from "./pages/CancellationPolicy";
-import RefundPolicy from "./pages/RefundPolicy";
+const Bookings = lazy(() => import("./pages/Bookings"));
+const Help = lazy(() => import("./pages/Help"));
+const Profile = lazy(() => import("./pages/Profile"));
+const VehicleSearch = lazy(() => import("./pages/VehicleSearch"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+const TermsConditions = lazy(() => import("./pages/TermsConditions"));
+const CancellationPolicy = lazy(() => import("./pages/CancellationPolicy"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 
 import NotFound from "./pages/NotFound";
-import DriverAuth from "./driver/pages/DriverAuth";
-import DriverHome from "./driver/pages/DriverHome";
-import DriverRequests from "./driver/pages/DriverRequests";
-import DriverMyVehicle from "./driver/pages/DriverMyVehicle";
-import DriverProfile from "./driver/pages/DriverProfile";
-import DriverTermsConditions from "./driver/pages/DriverTermsConditions";
-import DriverPrivacyPolicy from "./driver/pages/DriverPrivacyPolicy";
-import AdminAuth from "./admin/pages/AdminAuth";
-import AdminDashboard from "./admin/pages/AdminDashboard";
-import AdminUserManagement from "./admin/pages/AdminUserManagement";
-import AdminDriverManagement from "./admin/pages/AdminDriverManagement";
-import AdminVehicleManagement from "./admin/pages/AdminVehicleManagement";
-import AdminVehicleSettings from "./admin/pages/AdminVehicleSettings";
+const DriverAuth = lazy(() => import("./driver/pages/DriverAuth"));
+const DriverHome = lazy(() => import("./driver/pages/DriverHome"));
+const DriverRequests = lazy(() => import("./driver/pages/DriverRequests"));
+const DriverMyVehicle = lazy(() => import("./driver/pages/DriverMyVehicle"));
+const DriverProfile = lazy(() => import("./driver/pages/DriverProfile"));
+const DriverTermsConditions = lazy(() => import("./driver/pages/DriverTermsConditions"));
+const DriverPrivacyPolicy = lazy(() => import("./driver/pages/DriverPrivacyPolicy"));
+const AdminAuth = lazy(() => import("./admin/pages/AdminAuth"));
+const AdminDashboard = lazy(() => import("./admin/pages/AdminDashboard"));
+const AdminUserManagement = lazy(() => import("./admin/pages/AdminUserManagement"));
+const AdminDriverManagement = lazy(() => import("./admin/pages/AdminDriverManagement"));
+const AdminVehicleManagement = lazy(() => import("./admin/pages/AdminVehicleManagement"));
+const AdminVehicleSettings = lazy(() => import("./admin/pages/AdminVehicleSettings"));
 
-import AdminPaymentManagement from "./admin/pages/AdminPaymentManagement";
-import AdminNotifications from "./admin/pages/AdminNotifications";
+const AdminPaymentManagement = lazy(() => import("./admin/pages/AdminPaymentManagement"));
+const AdminNotifications = lazy(() => import("./admin/pages/AdminNotifications"));
 
-import AdminBookingManagement from "./admin/pages/AdminBookingManagement";
-import AdminEarnings from "./admin/pages/AdminEarnings";
-import AdminProfile from "./admin/pages/AdminProfile";
-import AdminOffers from "./admin/pages/AdminOffers";
-import AdminReviews from "./admin/pages/AdminReviews";
-import AdminHelpSupport from "./admin/pages/AdminHelpSupport";
-import AdminPolicyManagement from "./admin/pages/AdminPolicyManagement";
+const AdminBookingManagement = lazy(() => import("./admin/pages/AdminBookingManagement"));
+const AdminEarnings = lazy(() => import("./admin/pages/AdminEarnings"));
+const AdminProfile = lazy(() => import("./admin/pages/AdminProfile"));
+const AdminOffers = lazy(() => import("./admin/pages/AdminOffers"));
+const AdminReviews = lazy(() => import("./admin/pages/AdminReviews"));
+const AdminHelpSupport = lazy(() => import("./admin/pages/AdminHelpSupport"));
+const AdminPolicyManagement = lazy(() => import("./admin/pages/AdminPolicyManagement"));
+import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
 import ProtectedDriverRoute from "./components/ProtectedDriverRoute";
 import ProtectedUserRoute from "./components/ProtectedUserRoute";
@@ -76,11 +77,48 @@ const GlobalErrorHandler = () => {
     };
 
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    return () => window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+
+    // After a deploy, an open tab still points at old chunk files (now 404): reload once to get the new build
+    const handlePreloadError = (event: Event) => {
+      event.preventDefault();
+      if (sessionStorage.getItem('chunkReload') !== '1') {
+        sessionStorage.setItem('chunkReload', '1');
+        window.location.reload();
+      }
+    };
+    window.addEventListener('vite:preloadError', handlePreloadError);
+    const clearFlag = setTimeout(() => sessionStorage.removeItem('chunkReload'), 10000);
+
+    // Warm the main screens in the background so the first tap opens them instantly
+    const warm = setTimeout(() => {
+      const driverSide = localStorage.getItem('appSide') === 'driver' || window.location.pathname.startsWith('/driver');
+      if (driverSide) {
+        import("./driver/pages/DriverHome");
+        import("./driver/pages/DriverRequests");
+      } else if (!window.location.pathname.startsWith('/admin')) {
+        import("./pages/VehicleSearch");
+        import("./pages/Bookings");
+        import("./pages/Profile");
+      }
+    }, 1500);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('vite:preloadError', handlePreloadError);
+      clearTimeout(clearFlag);
+      clearTimeout(warm);
+    };
   }, []);
 
   return null;
 };
+
+// Shown only while a lazily loaded screen downloads (first visit to that screen)
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-white">
+    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+  </div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -92,6 +130,8 @@ const App = () => (
         <DriverAuthProvider>
           <UserAuthProvider>
             <BrowserRouter>
+              <ErrorBoundary>
+              <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<UserAppLayout><MobileAuthWrapper><Index /></MobileAuthWrapper></UserAppLayout>} />
                 <Route path="/auth" element={<UserAppLayout><Auth /></UserAppLayout>} />
@@ -158,6 +198,8 @@ const App = () => (
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              </Suspense>
+              </ErrorBoundary>
             </BrowserRouter>
           </UserAuthProvider>
         </DriverAuthProvider>

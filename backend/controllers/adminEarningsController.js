@@ -1,3 +1,4 @@
+const { bookingSplit } = require('../utils/bookingSplit');
 const Vehicle = require('../models/Vehicle');
 const Booking = require('../models/Booking');
 const asyncHandler = require('../middleware/asyncHandler');
@@ -112,16 +113,8 @@ const getVehicleEarnings = asyncHandler(async (req, res) => {
         // Admin profit for this booking:
         // In the advance/partial payment system, the online amount collected via Razorpay is the admin's revenue/profit
         // If 100% full payment, platformFee minus discount (or online payment amount) is the profit
-        let bookingAdminProfit = 0;
-        if (b.payment?.isPartialPayment) {
-          bookingAdminProfit = Number(b.payment?.partialPaymentDetails?.onlineAmount ?? b.payment?.amount ?? 0);
-        } else if (Number(b.pricing?.platformFee) > 0) {
-          bookingAdminProfit = Math.max(0, Number(b.pricing.platformFee) - Number(b.pricing?.discount || 0));
-        } else {
-          bookingAdminProfit = Number(b.payment?.amount || 0);
-        }
-
-        const bookingDriverFare = totalAmount - bookingAdminProfit;
+        // Shared rule with the driver app (utils/bookingSplit.js)
+        const { platform: bookingAdminProfit, driver: bookingDriverFare } = bookingSplit(b);
 
         grossRevenue += totalAmount;
         totalPlatformFee += platformFee;
@@ -286,16 +279,8 @@ const getVehicleBookingEarnings = asyncHandler(async (req, res) => {
     // Profit logic:
     // In the advance/partial payment system, the online amount collected via Razorpay is the admin's revenue/profit
     // If full payment, platformFee minus discount is the profit
-    let adminProfit = 0;
-    if (b.payment?.isPartialPayment) {
-      adminProfit = Number(b.payment?.partialPaymentDetails?.onlineAmount ?? b.payment?.amount ?? 0);
-    } else if (platformFee > 0) {
-      adminProfit = Math.max(0, platformFee - discount);
-    } else {
-      adminProfit = Number(b.payment?.amount || 0);
-    }
-
-    const driverFare = totalAmount - adminProfit;
+    // Shared rule with the driver app (utils/bookingSplit.js)
+    const { platform: adminProfit, driver: driverFare } = bookingSplit(b);
 
     if (b.status === 'completed') {
       completedCount++;

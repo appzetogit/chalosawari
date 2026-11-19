@@ -21,6 +21,20 @@ try {
 }
 
 class RazorpayService {
+  static fetchOrder(orderId) {
+    return razorpay.orders.fetch(orderId);
+  }
+
+  // Raw Razorpay payments created in [fromSec, toSec] (unix seconds), all pages
+  static async listPayments(fromSec, toSec) {
+    const all = [];
+    for (let skip = 0; ; skip += 100) {
+      const page = await razorpay.payments.all({ from: fromSec, to: toSec, count: 100, skip });
+      all.push(...(page.items || []));
+      if (!page.items || page.items.length < 100) return all;
+    }
+  }
+
   /**
    * Check if Razorpay is properly configured
    */

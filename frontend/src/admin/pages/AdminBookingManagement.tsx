@@ -165,6 +165,9 @@ interface PaymentDetails {
   canProcessRefund: boolean;
 }
 
+// YYYY-MM-DD of the local calendar day (toISOString gives the UTC day, wrong before 5:30 AM IST)
+const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const AdminBookingManagement = () => {
   const [isLoading, setIsLoading] = useState(true);
 
@@ -220,13 +223,33 @@ const AdminBookingManagement = () => {
 
   // Status update form state
 
+  // Status/payment/date filters and search all run on the server across every booking (they used to
+  // filter only the 10 rows of the current page). Search is debounced; a filter change goes back to page 1.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 400);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+  const filterKey = [statusFilter, paymentFilter, dateFilter, debouncedSearch].join('|');
+  const [loadedFilterKey, setLoadedFilterKey] = useState(filterKey);
+  useEffect(() => {
+    if (filterKey !== loadedFilterKey && currentPage !== 1) {
+      setLoadedFilterKey(filterKey);
+      setCurrentPage(1); // the page change triggers the load
+      return;
+    }
+    setLoadedFilterKey(filterKey);
     loadBookings();
-  }, [currentPage]);
+  }, [currentPage, filterKey]);
 
-  useEffect(() => {
-    handleSearch();
-  }, [statusFilter, paymentFilter, dateFilter, searchTerm]);
+  // Server-side filter params shared by the list and the export
+  const serverFilters = () => ({
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    paymentStatus: paymentFilter === 'all' ? undefined : paymentFilter,
+    search: debouncedSearch || undefined,
+    startDate: dateFilter === 'all' ? undefined : getDateFilterValue(dateFilter),
+    endDate: dateFilter === 'all' ? undefined : localDay(new Date())
+  });
 
   const loadBookings = async () => {
     try {
@@ -234,9 +257,7 @@ const AdminBookingManagement = () => {
       const response = await adminBookings.getAll({
         page: currentPage,
         limit: itemsPerPage,
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        startDate: dateFilter === 'all' ? undefined : getDateFilterValue(dateFilter),
-        endDate: dateFilter === 'all' ? undefined : new Date().toISOString().split('T')[0]
+        ...serverFilters()
       });
 
       if (response.success) {
@@ -343,15 +364,15 @@ const AdminBookingManagement = () => {
     const today = new Date();
     switch (filter) {
       case 'today':
-        return today.toISOString().split('T')[0];
+        return localDay(today);
       case 'week':
         const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return weekAgo.toISOString().split('T')[0];
+        return localDay(weekAgo);
       case 'month':
         const monthAgo = new Date(today.getFullYear(), today.getMonth(), 1);
-        return monthAgo.toISOString().split('T')[0];
+        return localDay(monthAgo);
       default:
-        return today.toISOString().split('T')[0];
+        return localDay(today);
     }
   };
 
@@ -359,57 +380,19 @@ const AdminBookingManagement = () => {
     const today = new Date();
     switch (filter) {
       case 'today':
-        return today.toISOString().split('T')[0];
+        return localDay(today);
       case 'week':
         const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return weekAgo.toISOString().split('T')[0];
+        return localDay(weekAgo);
       case 'month':
         const monthAgo = new Date(today.getFullYear(), today.getMonth(), 1);
-        return monthAgo.toISOString().split('T')[0];
+        return localDay(monthAgo);
       default:
-        return today.toISOString().split('T')[0];
+        return localDay(today);
     }
   };
 
-  const handleSearch = () => {
-    let filtered = bookings;
 
-    if (searchTerm) {
-      filtered = filtered.filter(booking =>
-        booking.bookingNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        `${booking.user.firstName} ${booking.user.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        `${booking.driver.firstName} ${booking.driver.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        booking.vehicle.registrationNumber.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(booking => booking.status === statusFilter);
-    }
-
-    // Apply payment filter
-    if (paymentFilter !== 'all') {
-      if (paymentFilter === 'partial') {
-        filtered = filtered.filter(booking => booking.payment.isPartialPayment);
-      } else {
-        filtered = filtered.filter(booking => booking.payment.status === paymentFilter);
-      }
-    }
-
-    // Apply date filter
-    if (dateFilter !== 'all') {
-      const today = new Date();
-      const startDate = getStartDate(dateFilter);
-      
-      filtered = filtered.filter(booking => {
-        const bookingDate = new Date(booking.tripDetails.date);
-        return bookingDate >= new Date(startDate);
-      });
-    }
-
-    setFilteredBookings(filtered);
-  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -770,9 +753,7 @@ const AdminBookingManagement = () => {
 
       // Get all bookings data without pagination using the export API
       const response = await adminBookings.exportAll({
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        startDate: dateFilter === 'all' ? undefined : getDateFilterValue(dateFilter),
-        endDate: dateFilter === 'all' ? undefined : new Date().toISOString().split('T')[0],
+        ...serverFilters(),
         sortBy: 'createdAt',
         sortOrder: 'desc'
       });
@@ -982,6 +963,46 @@ const AdminBookingManagement = () => {
                     Page {currentPage} of {totalPages}
                   </div>
                 </div>
+              </div>
+
+              {/* Filters: all applied on the server, across every booking */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <Input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Booking no., name, phone, vehicle no."
+                  className="h-10"
+                />
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-10"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="accepted">Accepted</SelectItem>
+                    <SelectItem value="started">Started</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancellation_requested">Cancellation requested</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                  <SelectTrigger className="h-10"><SelectValue placeholder="Payment" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All payments</SelectItem>
+                    <SelectItem value="completed">Paid</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="partial">Advance (partial)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={dateFilter} onValueChange={setDateFilter}>
+                  <SelectTrigger className="h-10"><SelectValue placeholder="Date" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any date</SelectItem>
+                    <SelectItem value="today">Booked today</SelectItem>
+                    <SelectItem value="week">Last 7 days</SelectItem>
+                    <SelectItem value="month">This month</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {isLoading ? (

@@ -72,33 +72,36 @@ const HeroSection = () => {
       !fromLocation.trim() || !toLocation.trim() ? "Please select pickup and drop locations"
       : !dateRegex.test(departureDate) ? "Please select a valid pickup date"
       : !timeRegex.test(pickupTime) ? "Please select a valid pickup time"
+      : fromLocation.trim().toLowerCase() === toLocation.trim().toLowerCase() ? "Pickup and drop locations cannot be the same"
+      : new Date(`${departureDate}T${pickupTime}`) < new Date() ? "Pickup time has already passed, please choose a later time"
       : null;
     if (error) {
       toast.error(error);
       return;
     }
 
-    const fromData = fromLocationData || (await resolveLocationCoordinates(fromLocation));
-    const toData = toLocationData || (await resolveLocationCoordinates(toLocation));
+    // Loader only while typed (not picked) locations are geocoded; no artificial delay
+    setLoading(true);
+    const [fromData, toData] = await Promise.all([
+      fromLocationData || resolveLocationCoordinates(fromLocation),
+      toLocationData || resolveLocationCoordinates(toLocation),
+    ]);
+    setLoading(false);
     setFromLocationData(fromData);
     setToLocationData(toData);
 
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      navigate("/vehicle-search", {
-        state: {
-          from: fromLocation,
-          to: toLocation,
-          fromData,
-          toData,
-          pickupDate: departureDate,
-          pickupTime,
-          serviceType: "oneWay",
-          returnDate: null,
-        },
-      });
-    }, 1200);
+    navigate("/vehicle-search", {
+      state: {
+        from: fromLocation,
+        to: toLocation,
+        fromData,
+        toData,
+        pickupDate: departureDate,
+        pickupTime,
+        serviceType: "oneWay",
+        returnDate: null,
+      },
+    });
   };
 
   const today = getDefaultDate(0);

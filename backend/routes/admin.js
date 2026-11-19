@@ -37,8 +37,6 @@ const {
   updateCashPaymentStatus,
   approveCancellationRequest,
   rejectCancellationRequest,
-  initiateRefund,
-  completeRefund,
   getSystemAnalytics,
   getActivityLog,
   uploadDriverDocument,
@@ -254,15 +252,17 @@ router.delete('/vehicles/:id', [
 router.get('/bookings', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
-  query('status').optional().isIn(['pending', 'accepted', 'started', 'completed', 'cancelled']).withMessage('Invalid status'),
+  query('status').optional().isIn(['pending', 'accepted', 'started', 'completed', 'cancelled', 'cancellation_requested']).withMessage('Invalid status'),
   query('startDate').optional().isISO8601().withMessage('Start date must be a valid date'),
   query('endDate').optional().isISO8601().withMessage('End date must be a valid date'),
-  query('sortBy').optional().isString().withMessage('Sort by must be a string'),
+  query('search').optional().isString().isLength({ max: 100 }).withMessage('Search must be at most 100 characters'),
+  query('paymentStatus').optional().isIn(['pending', 'completed', 'failed', 'partial']).withMessage('Invalid payment status'),
+  query('sortBy').optional().isIn(['createdAt', 'tripDetails.date', 'bookingNumber', 'pricing.totalAmount', 'status']).withMessage('Invalid sort field'),
   query('sortOrder').optional().isIn(['asc', 'desc']).withMessage('Sort order must be asc or desc')
 ], validate, getAllBookings);
 
 router.get('/bookings/export', [
-  query('status').optional().isIn(['pending', 'accepted', 'started', 'completed', 'cancelled']).withMessage('Invalid status'),
+  query('status').optional().isIn(['pending', 'accepted', 'started', 'completed', 'cancelled', 'cancellation_requested']).withMessage('Invalid status'),
   query('startDate').optional().isISO8601().withMessage('Start date must be a valid date'),
   query('endDate').optional().isISO8601().withMessage('End date must be a valid date'),
   query('sortBy').optional().isString().withMessage('Sort by must be a string'),
@@ -314,19 +314,6 @@ router.put('/bookings/:id/reject-cancellation', [
   body('reason').optional().isString().withMessage('Reason must be a string'),
   body('notes').optional().isString().withMessage('Notes must be a string')
 ], validate, rejectCancellationRequest);
-
-// Initiate refund for cancelled booking
-router.post('/bookings/:id/initiate-refund', [
-  param('id').isMongoId().withMessage('Invalid booking ID'),
-  body('refundMethod').optional().isIn(['razorpay', 'manual']).withMessage('Invalid refund method'),
-  body('notes').optional().isString().withMessage('Notes must be a string')
-], validate, initiateRefund);
-
-// Complete refund for cancelled booking
-router.put('/bookings/:id/complete-refund', [
-  param('id').isMongoId().withMessage('Invalid booking ID'),
-  body('notes').optional().isString().withMessage('Notes must be a string')
-], validate, completeRefund);
 
 // Activity log routes
 router.get('/activity-log', [

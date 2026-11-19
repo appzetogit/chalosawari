@@ -273,14 +273,16 @@ export const adminBookings = {
     status?: string;
     startDate?: string;
     endDate?: string;
+    search?: string;
+    paymentStatus?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   } = {}) => {
     const queryParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) queryParams.append(key, value.toString());
+      if (value !== undefined && value !== '') queryParams.append(key, value.toString());
     });
-    
+
     const response = await adminApi.get(`/bookings?${queryParams.toString()}`);
     return response.data;
   },
@@ -289,6 +291,8 @@ export const adminBookings = {
     status?: string;
     startDate?: string;
     endDate?: string;
+    search?: string;
+    paymentStatus?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   } = {}) => {
@@ -342,16 +346,6 @@ export const adminBookings = {
 
   rejectCancellationRequest: async (id: string, reason?: string, notes?: string) => {
     const response = await adminApi.put(`/bookings/${id}/reject-cancellation`, { reason, notes });
-    return response.data;
-  },
-
-  initiateRefund: async (id: string, refundMethod: 'razorpay' | 'manual', notes?: string) => {
-    const response = await adminApi.post(`/bookings/${id}/initiate-refund`, { refundMethod, notes });
-    return response.data;
-  },
-
-  completeRefund: async (id: string, notes?: string) => {
-    const response = await adminApi.put(`/bookings/${id}/complete-refund`, { notes });
     return response.data;
   }
 };
@@ -483,3 +477,15 @@ export const adminNotifications = {
 };
 
 export default adminApi;
+
+// Loads every page: the admin driver/vehicle tables filter in the browser, so they need all rows (not just the first 100)
+export const fetchAllPages = async (getAll: (params: any) => Promise<any>, params: Record<string, unknown> = {}) => {
+  const first = await getAll({ ...params, page: 1, limit: 100 });
+  const docs = [...(first?.data?.docs || [])];
+  const totalPages = first?.data?.totalPages || 1;
+  for (let page = 2; page <= totalPages; page++) {
+    const next = await getAll({ ...params, page, limit: 100 });
+    docs.push(...(next?.data?.docs || []));
+  }
+  return { ...first, data: { ...(first?.data || {}), docs } };
+};

@@ -19,7 +19,8 @@ import {
   Settings,
   Download,
   Smartphone,
-  Loader2
+  Loader2,
+  Trash2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -28,6 +29,18 @@ import { useToast } from "../hooks/use-toast";
 import { useIsMobile } from "../hooks/use-mobile";
 import { resolveImageUrl } from "../utils/imageUrl";
 import UserBottomNavigation from "../components/UserBottomNavigation";
+import apiService from "../services/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../components/ui/alert-dialog";
 
 type ProfileView = 'main' | 'personal' | 'notifications';
 
@@ -90,6 +103,47 @@ const Profile = () => {
   const handleLogout = () => {
     contextLogout();
     navigate('/');
+  };
+
+  // Notification preference (stored on the server; admin broadcasts skip users who turned it off)
+  const [offersPush, setOffersPush] = useState(true);
+  const [isSavingPrefs, setIsSavingPrefs] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    apiService.getUserPreferences()
+      .then(res => setOffersPush(res?.data?.preferences?.notifications?.push !== false))
+      .catch(() => {});
+  }, [isAuthenticated]);
+  const handleSavePreferences = async () => {
+    setIsSavingPrefs(true);
+    try {
+      await apiService.updateUserPreferences({ notifications: { push: offersPush } });
+      toast({ title: "Preferences Saved", description: "Notification settings updated." });
+      setCurrentView('main');
+    } catch (error) {
+      toast({ title: "Could not save", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSavingPrefs(false);
+    }
+  };
+
+  const [isDeleting, setIsDeleting] = useState(false);
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      await apiService.request('/user/account', { method: 'DELETE', body: JSON.stringify({ confirm: true }) });
+      toast({ title: "Account deleted", description: "Your account has been deleted." });
+      contextLogout();
+      navigate('/');
+    } catch (error) {
+      toast({
+        title: "Could not delete account",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleBack = () => {
@@ -555,6 +609,38 @@ const Profile = () => {
                     </div>
                     <ChevronRight className="w-5 h-5 text-red-400 group-hover:text-red-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
+                  {/* Delete Account (Play Store requires in-app account deletion) */}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <div className="flex items-center justify-between py-4 px-4 border-t border-gray-100 hover:bg-red-50/60 transition-colors cursor-pointer group">
+                        <div className="flex items-center space-x-4 min-w-0">
+                          <Trash2 className="w-6 h-6 text-red-500 stroke-[1.5]" />
+                          <span className="text-base font-normal text-red-600 group-hover:text-red-700">
+                            Delete Account
+                          </span>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-red-400 group-hover:text-red-600 shrink-0" />
+                      </div>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md rounded-2xl">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Your profile will be permanently deleted. This cannot be undone. Accounts with an upcoming or ongoing trip cannot be deleted.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={(e) => { e.preventDefault(); handleDeleteAccount(); }}
+                          disabled={isDeleting}
+                          className="bg-red-600 hover:bg-red-700"
+                        >
+                          {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Delete'}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                   </div>
                 </div>
               </div>
@@ -757,29 +843,23 @@ const Profile = () => {
               <div className="flex-1 max-w-md w-full mx-auto px-5 py-6 space-y-4 pb-24">
                 <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-gray-900 text-sm">Push Notifications</p>
-                    <p className="text-xs text-gray-500">Receive notifications on your device</p>
+                    <p className="font-semibold text-gray-900 text-sm">Offers & Announcements</p>
+                    <p className="text-xs text-gray-500">Push notifications about offers and news</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={offersPush} onCheckedChange={setOffersPush} disabled={isSavingPrefs} />
                 </div>
-                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-gray-900 text-sm">Email Confirmations</p>
-                    <p className="text-xs text-gray-500">Receive tickets and receipts via email</p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
+                <p className="text-xs text-gray-500 px-1">
+                  Booking updates (confirmed, driver assigned, trip started) are always sent.
+                </p>
 
                 <div className="pt-4">
                   <Button
                     type="button"
-                    onClick={() => {
-                      toast({ title: "Preferences Saved", description: "Notification settings updated." });
-                      setCurrentView('main');
-                    }}
+                    disabled={isSavingPrefs}
+                    onClick={handleSavePreferences}
                     className="w-full h-12 rounded-xl text-base font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20"
                   >
-                    Save Preferences
+                    {isSavingPrefs ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Preferences'}
                   </Button>
                 </div>
               </div>

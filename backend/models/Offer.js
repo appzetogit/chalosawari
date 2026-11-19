@@ -62,6 +62,17 @@ const OfferSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // 0 = unlimited
+  usageLimit: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  perUserLimit: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -75,9 +86,19 @@ OfferSchema.index({ isActive: 1, createdAt: -1 });
 
 // Discount (₹) a coupon gives on a booking amount; used by checkout preview and booking creation alike.
 // Returns { offer, discount } or { error }.
-OfferSchema.statics.applyCoupon = async function(code, { amount, vehicleType }) {
+OfferSchema.statics.applyCoupon = async function(code, { amount, vehicleType, userId }) {
   const offer = await this.findOne({ code: String(code || '').trim().toUpperCase() });
   if (!offer || !offer.isActive) return { error: 'Invalid coupon code' };
+  if (offer.usageLimit > 0 && offer.usedCount >= offer.usageLimit) return { error: 'This coupon has reached its usage limit' };
+  if (offer.perUserLimit > 0 && userId) {
+    // Bookings that used it and weren't cancelled count against the user
+    const used = await mongoose.model('Booking').countDocuments({
+      user: userId,
+      'pricing.couponCode': offer.code,
+      status: { $ne: 'cancelled' }
+    });
+    if (used >= offer.perUserLimit) return { error: 'You have already used this coupon' };
+  }
   if (offer.validTill) {
     const endOfDay = new Date(offer.validTill);
     endOfDay.setHours(23, 59, 59, 999);

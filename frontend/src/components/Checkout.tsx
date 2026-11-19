@@ -304,7 +304,7 @@ const Checkout: React.FC<CheckoutProps> = ({ isOpen, onClose, vehicle, bookingDa
         setAppliedCoupon(null);
       }
       setCouponError(msg);
-      setModalCouponError(msg);
+      toast({ title: "Coupon not applied", description: msg, variant: "destructive" });
     } finally {
       setIsApplyingCoupon(false);
     }
@@ -412,6 +412,16 @@ const Checkout: React.FC<CheckoutProps> = ({ isOpen, onClose, vehicle, bookingDa
       toast({
         title: "Invalid Date or Time",
         description: "Please select a valid pickup date and time.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Same rule the server enforces; checked before paying so nobody pays for a trip that gets rejected
+    if (new Date(`${pickupDate}T${pickupTime}`) < new Date()) {
+      toast({
+        title: "Pickup Time Has Passed",
+        description: "Please go back and choose a future pickup date and time.",
         variant: "destructive",
       });
       return;

@@ -65,7 +65,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { adminDrivers, adminVehicles } from "@/services/adminApi";
+import { adminDrivers, adminVehicles, fetchAllPages } from "@/services/adminApi";
 import { resolveImageUrl } from "@/utils/imageUrl";
 
 // All 28 Indian States and 8 Union Territories
@@ -573,9 +573,7 @@ const AdminDriverManagement = () => {
   const loadDrivers = async () => {
     try {
       console.log('Loading drivers...');
-      const response = await adminDrivers.getAll({
-        page: 1,
-        limit: 100,
+      const response = await fetchAllPages(adminDrivers.getAll, {
         sortBy: 'createdAt',
         sortOrder: 'desc'
       });
@@ -610,34 +608,12 @@ const AdminDriverManagement = () => {
       console.log('Pending vehicles response:', response);
       const requests = response.data.docs || [];
       
-      // Populate pricing for all pending vehicle requests
-      const requestsWithPricing = await Promise.all(
-        requests.map(async (request) => {
-          try {
-            if (request.pricingReference) {
-              const { getPricingForVehicle } = await import('@/services/vehiclePricingApi');
-              const pricing = await getPricingForVehicle(
-                request.pricingReference.category,
-                request.pricingReference.vehicleType,
-                request.pricingReference.vehicleModel
-              );
-              
-              if (pricing) {
-                request.computedPricing = {
-                  distancePricing: pricing.distancePricing,
-                  category: pricing.category,
-                  vehicleType: pricing.vehicleType,
-                  vehicleModel: pricing.vehicleModel
-                };
-              }
-            }
-            return request;
-          } catch (error) {
-            console.error(`Error fetching pricing for request ${request._id}:`, error);
-            return request;
-          }
-        })
-      );
+      // Pricing is already on each vehicle (synced from Vehicle Models); no request per vehicle
+      const requestsWithPricing = requests.map((request) => (
+        request.pricingReference
+          ? { ...request, computedPricing: { distancePricing: request.pricing?.distancePricing?.oneWay, ...request.pricingReference } }
+          : request
+      ));
       
       setPendingVehicleRequests(requestsWithPricing);
     } catch (error) {
@@ -1030,43 +1006,19 @@ const AdminDriverManagement = () => {
   const loadVehicles = async () => {
     try {
       console.log('Loading vehicles...');
-      const response = await adminVehicles.getAll({
-        page: 1,
-        limit: 100,
+      const response = await fetchAllPages(adminVehicles.getAll, {
         sortBy: 'createdAt',
         sortOrder: 'desc'
       });
       console.log('Vehicles response:', response);
       const vehiclesData = response.data.docs || [];
       
-      // Populate pricing for all vehicles
-      const vehiclesWithPricing = await Promise.all(
-        vehiclesData.map(async (vehicle) => {
-          try {
-            if (vehicle.pricingReference) {
-              const { getPricingForVehicle } = await import('@/services/vehiclePricingApi');
-              const pricing = await getPricingForVehicle(
-                vehicle.pricingReference.category,
-                vehicle.pricingReference.vehicleType,
-                vehicle.pricingReference.vehicleModel
-              );
-              
-              if (pricing) {
-                vehicle.computedPricing = {
-                  distancePricing: pricing.distancePricing,
-                  category: pricing.category,
-                  vehicleType: pricing.vehicleType,
-                  vehicleModel: pricing.vehicleModel
-                };
-              }
-            }
-            return vehicle;
-          } catch (error) {
-            console.error(`Error fetching pricing for vehicle ${vehicle._id}:`, error);
-            return vehicle;
-          }
-        })
-      );
+      // Pricing is already on each vehicle (synced from Vehicle Models); no request per vehicle
+      const vehiclesWithPricing = vehiclesData.map((vehicle) => (
+        vehicle.pricingReference
+          ? { ...vehicle, computedPricing: { distancePricing: vehicle.pricing?.distancePricing?.oneWay, ...vehicle.pricingReference } }
+          : vehicle
+      ));
       
       setVehicles(vehiclesWithPricing);
       setFilteredVehicles(vehiclesWithPricing);

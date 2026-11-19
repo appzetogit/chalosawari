@@ -6,6 +6,49 @@ const Booking = require('../models/Booking');
 const asyncHandler = require('../middleware/asyncHandler');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const { paidOnline } = require('../utils/bookingSplit');
+
+// Aggregation form of bookingSplit().platform: advance bookings → online advance; full payment → platform fee minus discount
+const PLATFORM_SHARE = {
+  $cond: [
+    { $eq: ['$payment.isPartialPayment', true] },
+    { $ifNull: ['$payment.partialPaymentDetails.onlineAmount', 0] },
+    { $max: [0, { $subtract: [{ $ifNull: ['$pricing.platformFee', 0] }, { $ifNull: ['$pricing.discount', 0] }] }] }
+  ]
+};
+
+// Admin booking list/export filters, applied in the DB (not on the current page in the browser)
+const buildBookingQuery = async ({ status, startDate, endDate, search, paymentStatus }) => {
+  const query = {};
+  if (status) query.status = status;
+  if (startDate || endDate) {
+    // Date-only values are whole IST days: endDate includes that entire day
+    const day = (d, time) => new Date(String(d).length === 10 ? `${d}T${time}+05:30` : d);
+    query.createdAt = {};
+    if (startDate) query.createdAt.$gte = day(startDate, '00:00:00');
+    if (endDate) query.createdAt.$lte = day(endDate, '23:59:59.999');
+  }
+  if (paymentStatus === 'partial') query['payment.isPartialPayment'] = true;
+  else if (paymentStatus) query['payment.status'] = paymentStatus;
+
+  // Booking no., customer/driver name or phone, vehicle number — across all bookings
+  if (search && String(search).trim()) {
+    const rx = new RegExp(String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const person = { $or: [{ firstName: rx }, { lastName: rx }, { phone: rx }] };
+    const [userIds, driverIds, vehicleIds] = await Promise.all([
+      User.find(person).distinct('_id'),
+      Driver.find(person).distinct('_id'),
+      Vehicle.find({ registrationNumber: rx }).distinct('_id')
+    ]);
+    query.$or = [
+      { bookingNumber: rx },
+      { user: { $in: userIds } },
+      { driver: { $in: driverIds } },
+      { vehicle: { $in: vehicleIds } }
+    ];
+  }
+  return query;
+};
 
 // Escape user search text before using it in $regex (avoids regex injection / ReDoS)
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -196,26 +239,18 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     User.countDocuments(dateFilter),
     Driver.countDocuments(dateFilter),
     Booking.countDocuments(dateFilter),
+    // Platform's share of completed trips (same rule as utils/bookingSplit.js), not the full fare incl. driver cash
     Booking.aggregate([
       { $match: { ...dateFilter, status: 'completed' } },
-      { $group: { _id: null, total: { $sum: '$pricing.totalAmount' } } }
+      { $group: { _id: null, total: { $sum: PLATFORM_SHARE } } }
     ]),
-    // Count drivers pending verification
-    Driver.countDocuments({ 
-      $or: [
-        { isVerified: false },
-        { 'documents.drivingLicense.isVerified': false },
-        { 'documents.vehicleRC.isVerified': false }
-      ]
-    }),
-    // Count active trips (bookings with status 'in-progress' or 'started')
-    Booking.countDocuments({ 
-      status: { $in: ['in-progress', 'started', 'confirmed'] } 
-    }),
-    // Get total revenue from all completed bookings
+    // Vehicles waiting for admin approval (users can only book approved vehicles)
+    Vehicle.countDocuments({ approvalStatus: 'pending' }),
+    // Trips in progress
+    Booking.countDocuments({ status: { $in: ['accepted', 'started'] } }),
     Booking.aggregate([
       { $match: { status: 'completed' } },
-      { $group: { _id: null, total: { $sum: '$pricing.totalAmount' } } }
+      { $group: { _id: null, total: { $sum: PLATFORM_SHARE } } }
     ])
   ]);
 
@@ -1431,22 +1466,16 @@ const getAllBookings = asyncHandler(async (req, res) => {
   const { 
     page = 1, 
     limit = 10, 
-    status, 
+    status,
     startDate,
     endDate,
-    sortBy = 'createdAt', 
-    sortOrder = 'desc' 
+    search,
+    paymentStatus,
+    sortBy = 'createdAt',
+    sortOrder = 'desc'
   } = req.query;
 
-  let query = {};
-  
-  if (status) query.status = status;
-  if (startDate && endDate) {
-    query.createdAt = {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
-    };
-  }
+  const query = await buildBookingQuery({ status, startDate, endDate, search, paymentStatus });
 
   const options = {
     page: parseInt(page),
@@ -1468,22 +1497,16 @@ const getAllBookings = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const getAllBookingsForExport = asyncHandler(async (req, res) => {
   const { 
-    status, 
+    status,
     startDate,
     endDate,
-    sortBy = 'createdAt', 
-    sortOrder = 'desc' 
+    search,
+    paymentStatus,
+    sortBy = 'createdAt',
+    sortOrder = 'desc'
   } = req.query;
 
-  let query = {};
-  
-  if (status) query.status = status;
-  if (startDate && endDate) {
-    query.createdAt = {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
-    };
-  }
+  const query = await buildBookingQuery({ status, startDate, endDate, search, paymentStatus });
 
   const sortOptions = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
@@ -1549,7 +1572,7 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
       cancelledByModel: 'Admin',
       cancelledAt: new Date(),
       reason: reason || 'Cancelled by admin',
-      refundAmount: booking.pricing.totalAmount,
+      refundAmount: paidOnline(booking),
       refundStatus: 'pending'
     };
   }
@@ -1633,10 +1656,7 @@ const adminCancelBooking = asyncHandler(async (req, res) => {
   }
 
   // What the customer actually paid online is what can be refunded
-  const partial = booking.payment?.isPartialPayment ? booking.payment.partialPaymentDetails : null;
-  const paidOnline = partial
-    ? (partial.onlinePaymentStatus === 'completed' ? partial.onlineAmount : 0)
-    : (booking.payment?.status === 'completed' ? (booking.payment.amount || booking.pricing.totalAmount) : 0);
+  const refundable = paidOnline(booking);
 
   booking._updatedByModel = 'Admin';
   booking._updatedBy = req.admin.id;
@@ -1648,7 +1668,7 @@ const adminCancelBooking = asyncHandler(async (req, res) => {
     cancelledByModel: 'Admin',
     cancelledAt: new Date(),
     reason: req.body.reason || 'Cancelled by admin',
-    refundAmount: paidOnline,
+    refundAmount: refundable,
     refundStatus: 'pending'
   };
   await booking.save();
@@ -2210,7 +2230,7 @@ const approveCancellationRequest = asyncHandler(async (req, res) => {
         booking.cancellation.refundAmount = 0;
       }
     } else {
-      booking.cancellation.refundAmount = booking.payment.status === 'completed' ? booking.pricing.totalAmount : 0;
+      booking.cancellation.refundAmount = paidOnline(booking);
     }
 
     // Update booking status to cancelled
@@ -2268,7 +2288,8 @@ const rejectCancellationRequest = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'This booking is not requesting cancellation' });
     }
 
-    if (booking.cancellation.requestStatus !== 'pending') {
+    // 'rejected' while still cancellation_requested = stuck by the old duplicate-history bug; allow rejecting again to unstick it
+    if (!['pending', 'rejected'].includes(booking.cancellation.requestStatus)) {
       return res.status(400).json({ success: false, message: 'Cancellation request has already been processed' });
     }
 
@@ -2280,9 +2301,11 @@ const rejectCancellationRequest = asyncHandler(async (req, res) => {
     booking.cancellation.approvedReason = reason || 'Admin rejected cancellation request';
 
     // Revert booking status to previous status (usually 'accepted')
-    const previousStatus = booking.statusHistory && booking.statusHistory.length > 1 
-      ? booking.statusHistory[booking.statusHistory.length - 2].status 
-      : 'accepted';
+    // Last real status before the request (history may hold duplicate cancellation_requested entries)
+    const previousStatus = [...(booking.statusHistory || [])]
+      .reverse()
+      .map(h => h.status)
+      .find(s => s && s !== 'cancellation_requested') || 'pending';
     
     booking.status = previousStatus;
     booking._updatedBy = req.admin.id;
@@ -2315,127 +2338,6 @@ const rejectCancellationRequest = asyncHandler(async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to reject cancellation request',
-      error: error.message
-    });
-  }
-});
-
-// @desc    Initiate refund for cancelled booking
-// @route   POST /api/admin/bookings/:id/initiate-refund
-// @access  Private (Admin)
-const initiateRefund = asyncHandler(async (req, res) => {
-  try {
-    const { refundMethod, notes } = req.body;
-    const { id: bookingId } = req.params;
-
-    const booking = await Booking.findById(bookingId);
-    if (!booking) {
-      return res.status(404).json({ success: false, message: 'Booking not found' });
-    }
-
-    if (booking.status !== 'cancelled') {
-      return res.status(400).json({ success: false, message: 'This booking is not cancelled' });
-    }
-
-    if (booking.cancellation.refundStatus !== 'pending') {
-      return res.status(400).json({ success: false, message: 'Refund has already been processed' });
-    }
-
-    if (booking.cancellation.refundAmount <= 0) {
-      return res.status(400).json({ success: false, message: 'No refund amount available' });
-    }
-
-    // Update refund status
-    booking.cancellation.refundStatus = 'initiated';
-    booking.cancellation.refundMethod = refundMethod || 'razorpay';
-    booking.cancellation.refundInitiatedAt = new Date();
-    booking.cancellation.refundNotes = notes || '';
-
-    await booking.save();
-
-    // Log admin activity
-    const admin = await Admin.findById(req.admin.id);
-    await admin.logActivity(
-      'refund_initiated',
-      `Refund initiated for booking ${booking.bookingNumber} - Amount: ₹${booking.cancellation.refundAmount}`,
-      req.ip,
-      req.get('User-Agent')
-    );
-
-    res.json({
-      success: true,
-      message: 'Refund initiated successfully',
-      data: {
-        bookingId: booking._id,
-        refundAmount: booking.cancellation.refundAmount,
-        refundMethod: booking.cancellation.refundMethod,
-        refundStatus: booking.cancellation.refundStatus
-      }
-    });
-  } catch (error) {
-    console.error('Error initiating refund:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to initiate refund',
-      error: error.message
-    });
-  }
-});
-
-// @desc    Complete refund for cancelled booking
-// @route   PUT /api/admin/bookings/:id/complete-refund
-// @access  Private (Admin)
-const completeRefund = asyncHandler(async (req, res) => {
-  try {
-    const { notes } = req.body;
-    const { id: bookingId } = req.params;
-
-    const booking = await Booking.findById(bookingId);
-    if (!booking) {
-      return res.status(404).json({ success: false, message: 'Booking not found' });
-    }
-
-    if (booking.status !== 'cancelled') {
-      return res.status(400).json({ success: false, message: 'This booking is not cancelled' });
-    }
-
-    if (booking.cancellation.refundStatus !== 'initiated') {
-      return res.status(400).json({ success: false, message: 'Refund must be initiated before completing' });
-    }
-
-    // Update refund status to completed
-    booking.cancellation.refundStatus = 'completed';
-    booking.cancellation.refundCompletedAt = new Date();
-    if (notes) {
-      booking.cancellation.refundNotes = notes;
-    }
-
-    await booking.save();
-
-    // Log admin activity
-    const admin = await Admin.findById(req.admin.id);
-    await admin.logActivity(
-      'refund_completed',
-      `Refund completed for booking ${booking.bookingNumber} - Amount: ₹${booking.cancellation.refundAmount}`,
-      req.ip,
-      req.get('User-Agent')
-    );
-
-    res.json({
-      success: true,
-      message: 'Refund marked as completed successfully',
-      data: {
-        bookingId: booking._id,
-        refundAmount: booking.cancellation.refundAmount,
-        refundStatus: booking.cancellation.refundStatus,
-        refundCompletedAt: booking.cancellation.refundCompletedAt
-      }
-    });
-  } catch (error) {
-    console.error('Error completing refund:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to complete refund',
       error: error.message
     });
   }
@@ -2478,8 +2380,6 @@ module.exports = {
   updateCashPaymentStatus,
   approveCancellationRequest,
   rejectCancellationRequest,
-  initiateRefund,
-  completeRefund,
   getSystemAnalytics,
   getActivityLog,
   uploadDriverDocument,

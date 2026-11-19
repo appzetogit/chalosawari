@@ -15,61 +15,51 @@ const DriverHome = () => {
   const navigate = useNavigate();
   const { driver, isLoggedIn, logout, refreshDriverData, updateDriverData } = useDriverAuth();
   const [isLoaded, setIsLoaded] = useState(false);
-  const [dashboardData, setDashboardData] = useState({
-    activeRequests: 0,
-    totalVehicles: 0,
-    completedRides: 0,
-    totalEarnings: 0
+  // Last numbers are cached so the dashboard renders instantly; fresh ones replace them in the background
+  const [dashboardData, setDashboardData] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('driverDashboard') || 'null');
+      if (cached) return cached;
+    } catch { /* ignore bad cache */ }
+    return { activeRequests: 0, totalVehicles: 0, completedRides: 0, totalEarnings: 0 };
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => !localStorage.getItem('driverDashboard'));
   const [error, setError] = useState<string | null>(null);
 
   // Check if driver has accepted the agreement
   const hasAcceptedAgreement = driver?.agreement?.isAccepted || false;
 
+  const driverId = driver?._id;
   useEffect(() => {
+    if (!driverId) {
+      setIsLoading(false);
+      return;
+    }
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
-
-    const fetchDashboardData = async () => {
+    (async () => {
       try {
-        if (!isMounted) return;
-        setIsLoading(true);
         setError(null);
-        
-        const summary = await driverApiService.getDashboardSummary();
-        
+        // Only the 4 numbers this screen shows (getDashboardSummary made 9 calls)
+        const [activeRequests, totalVehicles, completedRides, earnings] = await Promise.all([
+          driverApiService.getPendingBookings().then(b => b.length),
+          driverApiService.getVehicles().then(v => v.length),
+          driverApiService.getCompletedBookingsCount(),
+          driverApiService.getEarnings().then(e => e.totalEarnings || 0)
+        ]);
         if (!isMounted) return;
-        setDashboardData({
-          activeRequests: summary.activeRequests || 0,
-          totalVehicles: summary.totalVehicles || 0,
-          completedRides: summary.completedRides || 0,
-          totalEarnings: summary.totalEarnings || 0
-        });
+        const data = { activeRequests, totalVehicles, completedRides, totalEarnings: earnings };
+        setDashboardData(data);
+        try { localStorage.setItem('driverDashboard', JSON.stringify(data)); } catch { /* optional cache */ }
       } catch (err) {
         if (!isMounted) return;
         console.error('DriverHome: Error fetching dashboard data:', err);
         setError('Failed to load dashboard data');
       } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        if (isMounted) setIsLoading(false);
       }
-    };
-
-    if (driver) {
-      timeoutId = setTimeout(fetchDashboardData, 300);
-    } else {
-      setIsLoading(false);
-    }
-
-    return () => {
-      isMounted = false;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [driver]);
+    })();
+    return () => { isMounted = false; };
+  }, [driverId]);
 
   useEffect(() => {
     if (isLoggedIn) {

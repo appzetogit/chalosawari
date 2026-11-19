@@ -427,7 +427,7 @@ const AdminDashboard = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-emerald-700 mb-1">Total Revenue</p>
+                <p className="text-sm font-medium text-emerald-700 mb-1">Total Platform Earnings</p>
                 <p className="text-xl md:text-2xl font-bold text-emerald-900 animate-count-up">
                   {formatCurrency(animatedTotalRevenue)}
                 </p>
@@ -446,7 +446,7 @@ const AdminDashboard = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-indigo-700 mb-1">{selectedPeriod.charAt(0).toUpperCase() + selectedPeriod.slice(1)} Revenue</p>
+                <p className="text-sm font-medium text-indigo-700 mb-1">{selectedPeriod.charAt(0).toUpperCase() + selectedPeriod.slice(1)} Platform Earnings</p>
                 <p className="text-xl md:text-2xl font-bold text-indigo-900 animate-count-up">
                   {formatCurrency(stats.periodRevenue)}
                 </p>
@@ -467,7 +467,7 @@ const AdminDashboard = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-cyan-700 mb-1">Pending Verifications</p>
+                <p className="text-sm font-medium text-cyan-700 mb-1">Vehicles Awaiting Approval</p>
                 <p className="text-xl md:text-2xl font-bold text-cyan-900 animate-count-up">
                   {animatedPendingVerifications.toLocaleString()}
                 </p>
