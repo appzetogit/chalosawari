@@ -24,6 +24,11 @@ const MobileAuthWrapper: React.FC<MobileAuthWrapperProps> = ({ children }) => {
     );
   }
 
+  // Driver app WebView landing on a user page (e.g. native reload to base URL) → back to driver dashboard
+  if (!isAuthenticated && localStorage.getItem('driverToken')) {
+    return <Navigate to="/driver" replace />;
+  }
+
   // If user is on mobile and not authenticated, redirect to login
   if (isMobile && !isAuthenticated) {
     console.log('MobileAuthWrapper: Mobile user not authenticated, redirecting to login');
