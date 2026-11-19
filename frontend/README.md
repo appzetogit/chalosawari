@@ -65,8 +65,7 @@ This project uses environment variables for configuration. Copy `env.example` to
 - `VITE_API_KEY`: Your API key for the application
 - `VITE_STRIPE_PUBLISHABLE_KEY`: Stripe publishable key for payments
 - `VITE_STRIPE_SECRET_KEY`: Stripe secret key for payments
-- `VITE_RAZORPAY_KEY_ID`: Razorpay key ID for payments
-- `VITE_RAZORPAY_KEY_SECRET`: Razorpay secret key for payments
+- Razorpay keys are NOT needed here: the backend sends the key ID (from `RAZORPAY_KEY_ID` in `backend/.env`) with each order
 
 ### Security Note
 ⚠️ **Never commit your `.env` file to version control**. The `.env` file is already added to `.gitignore` to prevent accidental commits.

@@ -80,6 +80,7 @@ class RazorpayService {
       
       return {
         success: true,
+        keyId: process.env.RAZORPAY_KEY_ID, // public key for checkout; secret never leaves the backend
         orderId: order.id,
         amount: order.amount, // This will be in paise
         currency: order.currency,

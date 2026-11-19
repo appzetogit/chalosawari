@@ -46,12 +46,10 @@ export interface RazorpayOptions {
 
 class RazorpayService {
   private apiBaseUrl: string;
-  private razorpayKey: string;
 
   constructor() {
     const envUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
     this.apiBaseUrl = envUrl || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
-    this.razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID || '';
   }
 
   /**
@@ -221,10 +219,13 @@ class RazorpayService {
 
       // Create order
       const order = await this.createOrder(orderData);
+      if (!order?.keyId) {
+        throw new Error('Payment service not configured. Please try again later.');
+      }
 
-      // Configure Razorpay options
+      // Configure Razorpay options (key comes from the backend env with the order)
       const options: RazorpayOptions = {
-        key: this.razorpayKey,
+        key: order.keyId,
         amount: order.amount, // Amount in paise
         currency: order.currency,
         name: 'Chalo Sawari',
