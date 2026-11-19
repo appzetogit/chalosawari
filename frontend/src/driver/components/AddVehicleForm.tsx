@@ -1084,7 +1084,7 @@ const AddVehicleForm = ({ mode = 'create', initial, existingImages = [], onSubmi
           </div>
 
           {/* 8. Bottom Action Buttons */}
-          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 pb-6">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
             <Button
               type="button"
               variant="outline"

@@ -334,32 +334,25 @@ const DriverMyVehicle = () => {
   // Full-Screen Add Vehicle Page (no bottom navigation)
   if (showAddDialog) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      // negative margin cancels body's safe-area padding: native wrapper already keeps the WebView above the system nav bar
+      <div className="min-h-screen bg-slate-50 flex flex-col mb-[calc(-1*env(safe-area-inset-bottom,0px))]">
         {/* Full Page Sticky Header */}
-        <div className="bg-primary text-primary-foreground p-4 sm:p-5 flex items-center justify-between shadow-xs sticky top-0 z-30 relative">
+        <div className="bg-white text-gray-900 px-4 py-3 flex items-center sticky top-0 z-30 relative border-b border-gray-100">
           <button
             type="button"
             onClick={() => setShowAddDialog(false)}
-            className="relative z-10 p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+            className="relative z-10 w-10 h-10 -ml-2 text-gray-800 hover:bg-gray-100 active:bg-gray-200 rounded-full transition-colors cursor-pointer flex items-center justify-center"
             aria-label="Back"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-base sm:text-lg font-bold tracking-wide absolute left-0 right-0 text-center pointer-events-none">
+          <h1 className="text-base sm:text-lg font-bold text-gray-900 absolute left-0 right-0 text-center pointer-events-none">
             Add New Vehicle
           </h1>
-          <button
-            type="button"
-            onClick={() => setShowAddDialog(false)}
-            className="relative z-10 p-1.5 -mr-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         {/* Full Page Scrollable Content */}
-        <div className="flex-1 px-4 py-5 max-w-2xl mx-auto w-full pb-10">
+        <div className="flex-1 px-4 pt-5 pb-4 max-w-2xl mx-auto w-full">
           <AddVehicleForm
             mode="create"
             onSubmit={handleAddVehicle}
@@ -374,32 +367,24 @@ const DriverMyVehicle = () => {
   // Full-Screen Edit Vehicle Page (no bottom navigation)
   if (editingVehicle) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="min-h-screen bg-slate-50 flex flex-col mb-[calc(-1*env(safe-area-inset-bottom,0px))]">
         {/* Full Page Sticky Header */}
-        <div className="bg-primary text-primary-foreground p-4 sm:p-5 flex items-center justify-between shadow-xs sticky top-0 z-30 relative">
+        <div className="bg-white text-gray-900 px-4 py-3 flex items-center sticky top-0 z-30 relative border-b border-gray-100">
           <button
             type="button"
             onClick={() => setEditingVehicle(null)}
-            className="relative z-10 p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer flex items-center justify-center"
+            className="relative z-10 w-10 h-10 -ml-2 text-gray-800 hover:bg-gray-100 active:bg-gray-200 rounded-full transition-colors cursor-pointer flex items-center justify-center"
             aria-label="Back"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-base sm:text-lg font-bold tracking-wide absolute left-0 right-0 text-center pointer-events-none truncate px-12">
+          <h1 className="text-base sm:text-lg font-bold text-gray-900 absolute left-0 right-0 text-center pointer-events-none truncate px-12">
             Edit {editingVehicle.brand || 'Vehicle'}
           </h1>
-          <button
-            type="button"
-            onClick={() => setEditingVehicle(null)}
-            className="relative z-10 p-1.5 -mr-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         {/* Full Page Scrollable Content */}
-        <div className="flex-1 px-4 py-5 max-w-2xl mx-auto w-full pb-10">
+        <div className="flex-1 px-4 pt-5 pb-4 max-w-2xl mx-auto w-full">
           <AddVehicleForm
             mode="edit"
             initial={({
