@@ -58,8 +58,8 @@ adminApi.interceptors.response.use(
 
 // Admin Authentication
 export const adminAuth = {
-  login: async (phone: string, password: string) => {
-    const response = await adminApi.post('/login', { phone, password });
+  login: async (email: string, password: string) => {
+    const response = await adminApi.post('/login', { email, password });
     return response.data;
   },
   

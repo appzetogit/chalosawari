@@ -16,10 +16,19 @@ const AdminSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Last name cannot be more than 50 characters']
   },
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    unique: true,
+    sparse: true, // older phone-only admin docs have no email
+    lowercase: true,
+    trim: true,
+    match: [/^S+@S+.S+$/, 'Please add a valid email']
+  },
   phone: {
     type: String,
-    required: [true, 'Phone number is required'],
     unique: true,
+    sparse: true,
     match: [/^[0-9]{10}$/, 'Please add a valid 10-digit phone number']
   },
   password: {

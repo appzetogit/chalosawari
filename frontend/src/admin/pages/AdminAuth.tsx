@@ -10,7 +10,7 @@ import busLogo from '../../assets/BusLogo.png';
 import {
   ShieldCheck,
   Lock,
-  Phone,
+  Mail,
   Eye,
   EyeOff,
   ArrowRight,
@@ -48,9 +48,9 @@ const AdminAuth: React.FC = () => {
     }
   }, [location.state]);
 
-  // Login form state - keeping only phone and password fields
+  // Login form state - email and password
   const [loginForm, setLoginForm] = useState({
-    phone: '',
+    email: '',
     password: ''
   });
 
@@ -67,7 +67,7 @@ const AdminAuth: React.FC = () => {
     setMessage('');
 
     try {
-      const response = await adminAuth.login(loginForm.phone, loginForm.password);
+      const response = await adminAuth.login(loginForm.email, loginForm.password);
       if (response.success && response.token && response.admin) {
         // Create complete admin data object with default values for missing fields
         const adminData = {
@@ -163,28 +163,25 @@ const AdminAuth: React.FC = () => {
 
               {/* Login Form */}
               <form onSubmit={handleLogin} className="space-y-5">
-                {/* Field 1: Phone Number */}
+                {/* Field 1: Email */}
                 <div className="space-y-2">
-                  <Label htmlFor="loginPhone" className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center justify-between">
-                    <span>Phone Number</span>
-                    <span className="text-[10px] text-slate-500 font-normal normal-case">10-digit mobile</span>
+                  <Label htmlFor="loginEmail" className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                    <span>Email</span>
                   </Label>
                   <div className="relative group">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-400 transition-colors">
-                      <Phone className="w-4 h-4" />
+                      <Mail className="w-4 h-4" />
                     </div>
                     <Input
-                      id="loginPhone"
-                      name="phone"
-                      type="tel"
-                      value={loginForm.phone}
+                      id="loginEmail"
+                      name="email"
+                      type="email"
+                      value={loginForm.email}
                       onChange={handleLoginChange}
                       required
-                      autoComplete="tel"
+                      autoComplete="email"
                       className="pl-10 h-12 bg-slate-800/60 border-slate-700/80 text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all"
-                      placeholder="e.g. 9876543210"
-                      pattern="[0-9]{10}"
-                      maxLength={10}
+                      placeholder="admin@example.com"
                     />
                   </div>
                 </div>
@@ -227,7 +224,7 @@ const AdminAuth: React.FC = () => {
                 {/* Submit Button */}
                 <Button
                   type="submit"
-                  disabled={loading || !loginForm.phone || !loginForm.password}
+                  disabled={loading || !loginForm.email || !loginForm.password}
                   className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/25 transition-all duration-200 active:scale-[0.99] flex items-center justify-center space-x-2 group disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {loading ? (

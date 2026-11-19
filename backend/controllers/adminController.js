@@ -21,27 +21,13 @@ const normalizePhone = (phone) => {
 // @route   POST /api/admin/login
 // @access  Public
 const adminLogin = asyncHandler(async (req, res) => {
-  const { phone, password } = req.body;
+  const { email, password } = req.body;
 
-  if (!phone || !password) {
-    return res.status(400).json({ success: false, message: 'Please provide phone number and password' });
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: 'Please provide email and password' });
   }
 
-  const normalizedPhone = normalizePhone(phone);
-
-  // Find admin by normalized phone
-  let admin = await Admin.findOne({ phone: normalizedPhone }).select('+password');
-
-  if (!admin) {
-    admin = await Admin.findOne({ phone: { $regex: `${normalizedPhone}$` } }).select('+password');
-    if (admin && admin.phone !== normalizedPhone) {
-      const conflicting = await Admin.findOne({ phone: normalizedPhone });
-      if (!conflicting) {
-        admin.phone = normalizedPhone;
-        await admin.save();
-      }
-    }
-  }
+  const admin = await Admin.findOne({ email: String(email).trim().toLowerCase() }).select('+password');
 
   if (!admin) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -82,6 +68,7 @@ const adminLogin = asyncHandler(async (req, res) => {
       id: admin._id,
       firstName: admin.firstName,
       lastName: admin.lastName,
+      email: admin.email,
       phone: admin.phone
     }
   });

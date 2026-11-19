@@ -83,6 +83,8 @@ All colors MUST be HSL.
   }
   body {
     @apply bg-background text-foreground;
+    /* Keep content above Android/iOS system nav bar */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     /* Hide scrollbars globally while maintaining scroll functionality */
     -ms-overflow-style: none;  /* Internet Explorer 10+ */
     scrollbar-width: none;     /* Firefox */

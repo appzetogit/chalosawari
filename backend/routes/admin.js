@@ -64,7 +64,7 @@ const router = express.Router();
 
 // Public admin auth route (admins are created with: npm run create-admin)
 router.post('/login', [
-  body('phone').isMobilePhone('en-IN').withMessage('Please provide a valid Indian phone number'),
+  body('email').isEmail().withMessage('Please provide a valid email'),
   body('password').notEmpty().withMessage('Password is required')
 ], validate, adminLogin);
 
