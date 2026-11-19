@@ -334,8 +334,7 @@ const DriverMyVehicle = () => {
   // Full-Screen Add Vehicle Page (no bottom navigation)
   if (showAddDialog) {
     return (
-      // negative margin cancels body's safe-area padding: native wrapper already keeps the WebView above the system nav bar
-      <div className="min-h-screen bg-slate-50 flex flex-col mb-[calc(-1*env(safe-area-inset-bottom,0px))]">
+      <div className="min-h-screen bg-slate-50 flex flex-col">
         {/* Full Page Sticky Header */}
         <div className="bg-white text-gray-900 px-4 py-3 flex items-center sticky top-0 z-30 relative border-b border-gray-100">
           <button
@@ -367,7 +366,7 @@ const DriverMyVehicle = () => {
   // Full-Screen Edit Vehicle Page (no bottom navigation)
   if (editingVehicle) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col mb-[calc(-1*env(safe-area-inset-bottom,0px))]">
+      <div className="min-h-screen bg-slate-50 flex flex-col">
         {/* Full Page Sticky Header */}
         <div className="bg-white text-gray-900 px-4 py-3 flex items-center sticky top-0 z-30 relative border-b border-gray-100">
           <button

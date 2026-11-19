@@ -83,8 +83,8 @@ All colors MUST be HSL.
   }
   body {
     @apply bg-background text-foreground;
-    /* Keep content above Android/iOS system nav bar */
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* No safe-area padding-bottom: native wrapper already keeps the WebView above the system nav bar;
+       env(safe-area-inset-bottom) double-counted it as a white strip (with the app frame's shadow) under every page */
     /* Hide scrollbars globally while maintaining scroll functionality */
     -ms-overflow-style: none;  /* Internet Explorer 10+ */
     scrollbar-width: none;     /* Firefox */
