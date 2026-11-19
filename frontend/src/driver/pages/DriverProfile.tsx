@@ -468,12 +468,13 @@ const DriverProfile = () => {
       {/* VIEW 1: MAIN PROFILE VIEW */}
       {/* ========================================================================= */}
       {currentView === 'main' && (
-        <div className="flex-1 flex flex-col bg-white">
+        <div className="flex-1 flex flex-col bg-gray-50">
           {/* Top Clean Modern Header */}
           <div className="bg-white text-gray-900 px-4 sm:px-6 py-4 flex items-center justify-center sticky top-0 z-30 border-b border-gray-100">
             <h1 className="text-lg font-bold text-gray-900 tracking-tight text-center">
               Driver Profile
             </h1>
+            <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
           </div>
 
           {/* Main Content Area */}
@@ -545,145 +546,151 @@ const DriverProfile = () => {
             </div>
 
             {/* Menu Rows */}
-            <div className="space-y-1 pt-1">
+            <div className="space-y-4 pt-1">
+              <div className="bg-white rounded-2xl overflow-hidden divide-y divide-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
               {/* 1. Personal Information */}
               <div
                 onClick={() => handleOpenView('personal')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <User className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <User className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Personal Information
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 2. Documents */}
               <div
                 onClick={() => handleOpenView('documents')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <Shield className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <Shield className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Documents
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 3. My Vehicles */}
               <div
                 onClick={() => navigate('/driver/myvehicle')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <Car className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <Car className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     My Vehicles
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 5. Bank Details */}
               <div
                 onClick={() => handleOpenView('bank')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <Landmark className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <Landmark className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Bank Details
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
+              </div>
+              <div className="bg-white rounded-2xl overflow-hidden divide-y divide-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
               {/* 6. Ride Requests */}
               <div
                 onClick={() => navigate('/driver/requests')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <MessageSquare className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <MessageSquare className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Ride Requests
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 7. Notifications */}
               <div
                 onClick={() => handleOpenView('notifications')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <Bell className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <Bell className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Notifications
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 8. Terms & Conditions */}
               <div
                 onClick={() => navigate('/driver/terms-conditions')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <FileText className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <FileText className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Terms & Conditions
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 9. Privacy Policy */}
               <div
                 onClick={() => navigate('/driver/privacy-policy')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <ShieldCheck className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <ShieldCheck className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Privacy Policy
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
               {/* 10. Help & Support */}
               <div
                 onClick={() => navigate('/help')}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <HelpCircle className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <HelpCircle className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                  <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                     Help & Support
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </div>
 
+              </div>
+              <div className="bg-white rounded-2xl overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
               {/* 11. Log Out */}
               <div
                 onClick={() => setShowLogoutDialog(true)}
-                className="flex items-center justify-between py-3.5 px-2 hover:bg-red-50/60 rounded-xl transition-colors cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-red-50/60 transition-colors cursor-pointer group"
               >
-                <div className="flex items-center space-x-3.5 min-w-0">
-                  <LogOut className="w-5 h-5 text-red-500 stroke-[1.75]" />
-                  <span className="text-sm sm:text-base font-medium text-red-600 group-hover:text-red-700">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <LogOut className="w-6 h-6 text-red-500 stroke-[1.5]" />
+                  <span className="text-base font-normal text-red-600 group-hover:text-red-700">
                     Log Out
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-red-400 group-hover:text-red-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="w-5 h-5 text-red-400 group-hover:text-red-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+              </div>
               </div>
             </div>
           </div>

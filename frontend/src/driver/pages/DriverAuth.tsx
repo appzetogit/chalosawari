@@ -380,15 +380,6 @@ const DriverAuth = () => {
                     className="border-0 shadow-none focus-visible:ring-0 text-base font-semibold text-gray-900 placeholder:text-gray-400 placeholder:font-normal h-12 px-3 tracking-wide"
                     maxLength={10}
                   />
-                  {phoneNumber.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setPhoneNumber("")}
-                      className="mr-3 text-xs text-gray-400 hover:text-gray-600 font-bold px-1.5 py-0.5 rounded-full hover:bg-gray-100"
-                    >
-                      ✕
-                    </button>
-                  )}
                 </div>
               </div>
               <p className="text-[11px] text-gray-400">

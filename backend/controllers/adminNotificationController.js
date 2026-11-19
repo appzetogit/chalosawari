@@ -1,6 +1,7 @@
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
+const { sendPushToAudience } = require('../utils/fcm');
 
 /**
  * @desc    Send a notification to users, drivers, or all
@@ -52,11 +53,32 @@ exports.sendNotification = async (req, res) => {
       status: 'sent'
     });
 
-    res.status(201).json({
-      success: true,
-      message: `Notification sent successfully to ${targetAudience === 'all' ? 'all users and drivers' : targetAudience + 's'}`,
-      data: notification
-    });
+    // ponytail: awaited inline; move to a background job if audience grows to many thousands
+    const models = { user: [User], driver: [Driver], all: [User, Driver] }[targetAudience];
+    const payload = {
+      title: notification.title,
+      body: notification.description,
+      data: { type: 'admin_notification', notificationId: notification._id }
+    };
+    let push = { successCount: 0, failureCount: 0, tokenCount: 0, errors: {} };
+    let message;
+    try {
+      push = await sendPushToAudience(models, payload);
+      const errs = Object.entries(push.errors).map(([c, n]) => `${c} x${n}`).join(', ');
+      message = push.tokenCount
+        ? `Delivered to ${push.successCount}/${push.tokenCount} app device(s)${errs ? ` (${errs})` : ''}`
+        : 'No app devices registered for this audience';
+    } catch (pushErr) {
+      console.error('Admin push failed:', pushErr.message);
+      push.failureCount = 1;
+      message = `Push failed: ${pushErr.message}`;
+    }
+    notification.successCount = push.successCount;
+    notification.failureCount = push.failureCount;
+    if (push.failureCount && !push.successCount) notification.status = 'failed';
+    await notification.save();
+
+    res.status(201).json({ success: true, message, data: notification });
   } catch (error) {
     console.error('Error sending notification:', error);
     res.status(500).json({

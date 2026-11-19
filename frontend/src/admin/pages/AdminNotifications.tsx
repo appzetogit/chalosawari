@@ -470,6 +470,8 @@ const AdminNotifications: React.FC = () => {
                         {item.recipientCount !== undefined && item.recipientCount > 0 && (
                           <span>• {item.recipientCount} Recipients</span>
                         )}
+                        <span>• Delivered: {item.successCount ?? 0}</span>
+                        {!!item.failureCount && <span className="text-red-500">• Failed: {item.failureCount}</span>}
                         {item.sentBy?.email && (
                           <span className="hidden md:inline">• Sent by {item.sentBy.email}</span>
                         )}

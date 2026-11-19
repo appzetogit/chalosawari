@@ -23,7 +23,7 @@ const AdminSchema = new mongoose.Schema({
     sparse: true, // older phone-only admin docs have no email
     lowercase: true,
     trim: true,
-    match: [/^S+@S+.S+$/, 'Please add a valid email']
+    match: [/^\S+@\S+\.\S+$/, 'Please add a valid email']
   },
   phone: {
     type: String,

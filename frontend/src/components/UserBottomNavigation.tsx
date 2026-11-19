@@ -62,12 +62,10 @@ const UserBottomNavigation = () => {
                     : "text-gray-500 hover:text-gray-800"
                 )}
               >
-                {/* Active Pill Background Indicator */}
-                {active && (
-                  <span className="absolute inset-0 bg-blue-50/90 rounded-xl" />
-                )}
-
-                <div className="relative">
+                <div className={cn(
+                  "relative px-5 py-1 rounded-full transition-colors duration-200",
+                  active && "bg-blue-100/80"
+                )}>
                   <Icon className={cn(
                     "w-5 h-5 transition-transform duration-200",
                     active ? "stroke-[2.25] scale-105 text-blue-600" : "stroke-[1.75] text-gray-500"

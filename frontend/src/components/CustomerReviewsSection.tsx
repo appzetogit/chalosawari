@@ -73,20 +73,16 @@ const CustomerReviewsSection: React.FC = () => {
   }
 
   return (
-    <section className="px-3 pt-2.5 pb-2 bg-transparent">
-      {/* Outer Card Container */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-sm">
-        {/* Header */}
-        <div className="mb-3.5">
-          <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-            What Our Customers Say
-          </h3>
-        </div>
+    <section>
+      <div>
+        <h3 className="px-4 mb-3 text-[17px] font-bold text-slate-900 tracking-tight">
+          Loved by travellers
+        </h3>
 
         {/* Review Carousel: 1 full card visible + next card peeking */}
         <div
           onScroll={handleScroll}
-          className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-none snap-x snap-mandatory scroll-smooth"
+          className="flex gap-3 overflow-x-auto px-4 pb-1 scrollbar-hide snap-x snap-mandatory scroll-px-4 scroll-smooth"
         >
           {reviews.map((item) => {
             const hasAvatar = Boolean(item.profilePicture) && !avatarErrorMap[item.id];
@@ -95,7 +91,7 @@ const CustomerReviewsSection: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className="w-[82%] sm:w-[84%] min-w-[260px] max-w-[310px] bg-white rounded-2xl p-4 border border-slate-100/90 shadow-2xs flex flex-col justify-between shrink-0 snap-start hover:border-slate-200 transition-all"
+                className="w-[82%] sm:w-[84%] min-w-[260px] max-w-[310px] bg-white rounded-3xl p-4 border border-slate-100 shadow-sm flex flex-col justify-between shrink-0 snap-start hover:border-slate-200 transition-all"
               >
                 {/* Stars & Comment */}
                 <div>
@@ -132,7 +128,7 @@ const CustomerReviewsSection: React.FC = () => {
                   </div>
                   <div className="min-w-0 flex-1">
                     <h5 className="text-xs sm:text-sm font-bold text-slate-800 leading-tight truncate">
-                      - {item.name}
+                      {item.name}
                     </h5>
                     <p className="text-[11px] text-slate-400 font-medium leading-tight mt-0.5 truncate">
                       {item.city}

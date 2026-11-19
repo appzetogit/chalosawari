@@ -451,6 +451,8 @@ export interface AdminNotificationItem {
   };
   status: 'sent' | 'scheduled' | 'failed';
   recipientCount: number;
+  successCount?: number;
+  failureCount?: number;
   createdAt: string;
   updatedAt: string;
 }

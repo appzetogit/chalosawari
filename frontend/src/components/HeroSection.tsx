@@ -1,350 +1,244 @@
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { ArrowLeftRight, Calendar, MapPin, Search, Bus, Plane, PlaneTakeoff, Home, List, HelpCircle, User, Train } from "lucide-react";
-import HomeBanner from "@/assets/Home3.png";
-import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ArrowUpDown, Calendar, Clock, Phone, Search } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import CarImg from "@/assets/CarBar.png";
 import BusImg from "@/assets/BusBar.png";
-import React from "react";
+import busLogo from "@/assets/BusLogo.png";
 import LocationAutocomplete from "./LocationAutocomplete";
-import { getDefaultDate } from "@/lib/utils";
+import { cn, getDefaultDate } from "@/lib/utils";
 import { resolveLocationCoordinates } from "@/lib/distanceUtils";
 import { googleMapsService } from "@/services/googleMapsService";
+import { useUserAuth } from "@/contexts/UserAuthContext";
+
+type Coords = { lat: number; lng: number; description: string } | null;
 
 const LoadingAnimation = () => (
   <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white">
     <div className="flex space-x-8 animate-pulse">
-      <img src={CarImg} alt="Car" className="w-20 h-20 object-contain animate-bounce" style={{ animationDelay: '0ms' }} />
-      <img src={BusImg} alt="Bus" className="w-20 h-20 object-contain animate-bounce" style={{ animationDelay: '200ms' }} />
+      <img src={CarImg} alt="Car" className="w-20 h-20 object-contain animate-bounce" />
+      <img src={BusImg} alt="Bus" className="w-20 h-20 object-contain animate-bounce" style={{ animationDelay: "200ms" }} />
     </div>
-    <div className="mt-6 text-xl font-semibold text-primary">Searching best Vehicle for you...</div>
+    <div className="mt-6 text-lg font-semibold text-blue-600">Searching best vehicle for you...</div>
   </div>
 );
 
+const greeting = () => {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+};
+
+// Resolve coordinates for a picked suggestion (current location already carries them)
+const coordsFor = async (location: any): Promise<Coords> => {
+  if (location.place_id === "current_location" && "lat" in location) {
+    return { lat: location.lat, lng: location.lng, description: location.description };
+  }
+  try {
+    const place = await googleMapsService.getPlaceDetails(location.place_id);
+    const loc = place?.geometry?.location;
+    return loc ? { lat: loc.lat(), lng: loc.lng(), description: location.description } : null;
+  } catch (error) {
+    console.error("Error getting coordinates:", error);
+    return null;
+  }
+};
+
+const inputClass =
+  "h-14 border-0 bg-transparent rounded-none text-[15px] font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:border-0 hover:border-0";
+
 const HeroSection = () => {
   const navigate = useNavigate();
+  const { user } = useUserAuth();
   const [fromLocation, setFromLocation] = useState("");
   const [toLocation, setToLocation] = useState("");
+  const [fromLocationData, setFromLocationData] = useState<Coords>(null);
+  const [toLocationData, setToLocationData] = useState<Coords>(null);
   const [departureDate, setDepartureDate] = useState(() => getDefaultDate(1));
-  const [returnDate, setReturnDate] = useState(() => getDefaultDate(2));
   const [pickupTime, setPickupTime] = useState("09:00");
-  const [selectedDate, setSelectedDate] = useState("04");
-  const [activeService, setActiveService] = useState("oneWay");
-  const [womenBooking, setWomenBooking] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
-  const [typedText, setTypedText] = useState("");
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  // Store selected location data with coordinates
-  const [fromLocationData, setFromLocationData] = useState<{
-    lat: number;
-    lng: number;
-    description: string;
-  } | null>(null);
-  const [toLocationData, setToLocationData] = useState<{
-    lat: number;
-    lng: number;
-    description: string;
-  } | null>(null);
-
-  const fullText = "CHALO SAWARI";
-  const blueText = "SAWARI";
-
-  // Animation trigger on mount
-  useEffect(() => {
-    setIsVisible(true);
-  }, []);
-
-
-
-
-  // Typing animation effect
-  useEffect(() => {
-    if (isVisible && currentIndex < fullText.length) {
-      const timeout = setTimeout(() => {
-        setTypedText(fullText.slice(0, currentIndex + 1));
-        setCurrentIndex(currentIndex + 1);
-      }, 150); // Speed of typing (150ms per character)
-
-      return () => clearTimeout(timeout);
-    }
-  }, [isVisible, currentIndex, fullText]);
 
   const handleSwapLocations = () => {
-    const temp = fromLocation;
-    const tempData = fromLocationData;
-
     setFromLocation(toLocation);
-    setToLocation(temp);
+    setToLocation(fromLocation);
     setFromLocationData(toLocationData);
-    setToLocationData(tempData);
+    setToLocationData(fromLocationData);
   };
 
   const handleSearch = async () => {
-    // Validate required fields
-    if (!fromLocation.trim() || !toLocation.trim()) {
-      alert("Please select both departure and destination locations");
-      return;
-    }
-
-    if (!departureDate) {
-      alert("Please select pickup date");
-      return;
-    }
-
-    if (!pickupTime) {
-      alert("Please select pickup time");
-      return;
-    }
-
-    // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(departureDate)) {
-      alert("Please select a valid pickup date");
-      return;
-    }
-
-    // Validate time format
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    if (!timeRegex.test(pickupTime)) {
-      alert("Please select a valid pickup time");
+
+    const error =
+      !fromLocation.trim() || !toLocation.trim() ? "Please select pickup and drop locations"
+      : !dateRegex.test(departureDate) ? "Please select a valid pickup date"
+      : !timeRegex.test(pickupTime) ? "Please select a valid pickup time"
+      : null;
+    if (error) {
+      toast.error(error);
       return;
     }
 
-    // Validate return date for round trip
-    if (activeService === "roundTrip" && !returnDate) {
-      alert("Please select return date for round trip");
-      return;
-    }
-
-    if (activeService === "roundTrip" && returnDate) {
-      const returnDateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!returnDateRegex.test(returnDate)) {
-        alert("Please select a valid return date");
-        return;
-      }
-
-      // Check if return date is after departure date
-      const departure = new Date(departureDate);
-      const returnD = new Date(returnDate);
-      if (returnD <= departure) {
-        alert("Return date must be after departure date");
-        return;
-      }
-    }
-
-    // Auto-resolve coordinates if not already present
-    let resolvedFromData = fromLocationData;
-    let resolvedToData = toLocationData;
-
-    if (!resolvedFromData) {
-      resolvedFromData = await resolveLocationCoordinates(fromLocation);
-      setFromLocationData(resolvedFromData);
-    }
-    if (!resolvedToData) {
-      resolvedToData = await resolveLocationCoordinates(toLocation);
-      setToLocationData(resolvedToData);
-    }
-
-    const searchState = {
-      from: fromLocation,
-      to: toLocation,
-      fromData: resolvedFromData,
-      toData: resolvedToData,
-      pickupDate: departureDate,
-      pickupTime: pickupTime,
-      serviceType: activeService,
-      returnDate: activeService === "roundTrip" ? returnDate : null
-    };
-
-    console.log('Debug - HeroSection navigating with search state:', searchState);
+    const fromData = fromLocationData || (await resolveLocationCoordinates(fromLocation));
+    const toData = toLocationData || (await resolveLocationCoordinates(toLocation));
+    setFromLocationData(fromData);
+    setToLocationData(toData);
 
     setLoading(true);
-
     setTimeout(() => {
       setLoading(false);
-      navigate('/vehicle-search', {
-        state: searchState
+      navigate("/vehicle-search", {
+        state: {
+          from: fromLocation,
+          to: toLocation,
+          fromData,
+          toData,
+          pickupDate: departureDate,
+          pickupTime,
+          serviceType: "oneWay",
+          returnDate: null,
+        },
       });
     }, 1200);
   };
 
-  const handleDateSelect = (date: string) => {
-    setSelectedDate(date);
-    // Update the actual date value based on selected date
-    const daysOffset = parseInt(date);
-    setDepartureDate(getDefaultDate(daysOffset));
-  };
-
-  // Function to render text with blue highlight for "SAWARI"
-  const renderTypedText = () => {
-    const parts = [];
-    let currentPart = "";
-
-    for (let i = 0; i < typedText.length; i++) {
-      const char = typedText[i];
-      currentPart += char;
-
-      // Check if we've completed "CHALO " and are starting "SAWARI"
-      if (typedText.slice(0, i + 1) === "CHALO " && i === 5) {
-        parts.push(<span key={`part-${i}`} className="text-black">{currentPart}</span>);
-        currentPart = "";
-      }
-      // Check if we're in the "SAWARI" part
-      else if (typedText.slice(0, 6) === "CHALO " && i >= 6) {
-        if (currentPart === "SAWARI") {
-          parts.push(<span key={`part-${i}`} className="text-blue-600 animate-pulse">{currentPart}</span>);
-          currentPart = "";
-        }
-      }
-    }
-
-    // Add any remaining text
-    if (currentPart) {
-      const isBluePart = typedText.startsWith("CHALO ") && typedText.length > 6;
-      parts.push(
-        <span key="remaining" className={isBluePart ? "text-blue-600 animate-pulse" : "text-black"}>
-          {currentPart}
-        </span>
-      );
-    }
-
-    return parts;
-  };
+  const today = getDefaultDate(0);
+  const tomorrow = getDefaultDate(1);
+  const openPicker = (e: React.MouseEvent<HTMLInputElement>) => e.currentTarget.showPicker?.();
 
   return (
-    <section className="relative flex flex-col bg-white">
+    <section className="relative">
       {loading && <LoadingAnimation />}
 
-      {/* Mobile App Layout Container */}
-      <div className="w-full max-w-md md:max-w-xl mx-auto flex flex-col flex-1 pt-3">
-        {/* Main Content */}
-        <div className="p-4 space-y-4 pb-6 bg-gray-50/60 rounded-2xl mx-2 sm:mx-0 border border-gray-100/80 shadow-xs">
-          {/* Main Booking Card */}
-          <Card className="p-4 sm:p-5 bg-white shadow-sm rounded-2xl border border-gray-200/80">
-            {/* From Field */}
-            <div className="mb-3.5 relative group">
-              <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">From</label>
+      {/* App header */}
+      <header className="px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-5 bg-white border-b border-slate-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <img src={busLogo} alt="Chalo Sawari" className="w-10 h-10 object-contain" />
+            <span className="text-[15px] font-extrabold tracking-tight text-slate-900">
+              CHALO <span className="text-blue-600">SAWARI</span>
+            </span>
+          </div>
+          <a
+            href="tel:+919171838260"
+            aria-label="Call helpline"
+            className="flex items-center gap-1.5 h-9 pl-2.5 pr-3 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold active:scale-95 transition"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            Help 24/7
+          </a>
+        </div>
+
+        <div className="mt-5">
+          <p className="text-sm text-slate-500">
+            {greeting()}{user?.firstName ? `, ${user.firstName}` : ""} 👋
+          </p>
+          <h1 className="mt-1 text-2xl font-bold leading-tight text-slate-900">Where are you going today?</h1>
+        </div>
+      </header>
+
+      {/* Booking card */}
+      <div className="px-4 pt-4">
+        <div className="bg-white rounded-3xl p-4 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)] border border-slate-100">
+          {/* From / To */}
+          <div className="flex items-stretch rounded-2xl border border-slate-200 bg-slate-50/60">
+            <div className="relative flex-1 min-w-0">
+              {/* dashed route line between the two location dots */}
+              <span className="absolute left-[29px] top-[44px] bottom-[44px] border-l-2 border-dashed border-slate-300 pointer-events-none" />
               <LocationAutocomplete
                 value={fromLocation}
-                onChange={setFromLocation}
+                onChange={(v) => { setFromLocation(v); setFromLocationData(null); }}
                 onLocationSelect={async (location) => {
                   setFromLocation(location.description);
-
-                  if (location.place_id === 'current_location' && 'lat' in location && 'lng' in location) {
-                    const coords = {
-                      lat: (location as any).lat,
-                      lng: (location as any).lng,
-                      description: location.description
-                    };
-                    setFromLocationData(coords);
-                  } else {
-                    try {
-                      const placeDetails = await googleMapsService.getPlaceDetails(location.place_id);
-                      if (placeDetails && placeDetails.geometry && placeDetails.geometry.location) {
-                        const coords = {
-                          lat: placeDetails.geometry.location.lat(),
-                          lng: placeDetails.geometry.location.lng(),
-                          description: location.description
-                        };
-                        setFromLocationData(coords);
-                      }
-                    } catch (error) {
-                      console.error('Error getting coordinates:', error);
-                    }
-                  }
+                  setFromLocationData(await coordsFor(location));
                 }}
-                placeholder="Departure"
-                icon={<Search className="w-4 h-4 text-primary" />}
-                className="pl-12 h-12 border border-gray-200 bg-white text-sm sm:text-base font-medium rounded-xl hover:border-gray-300 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-blue-500 shadow-none"
-                showGetLocation={true}
+                placeholder="Pickup location"
+                icon={<span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />}
+                className={inputClass}
+                showGetLocation
               />
-            </div>
-
-            {/* To Field */}
-            <div className="mb-3.5 relative group">
-              <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">To</label>
+              <div className="ml-12 border-t border-slate-200" />
               <LocationAutocomplete
                 value={toLocation}
-                onChange={setToLocation}
+                onChange={(v) => { setToLocation(v); setToLocationData(null); }}
                 onLocationSelect={async (location) => {
                   setToLocation(location.description);
-
-                  if (location.place_id === 'current_location' && 'lat' in location && 'lng' in location) {
-                    const coords = {
-                      lat: (location as any).lat,
-                      lng: (location as any).lng,
-                      description: location.description
-                    };
-                    setToLocationData(coords);
-                  } else {
-                    try {
-                      const placeDetails = await googleMapsService.getPlaceDetails(location.place_id);
-                      if (placeDetails && placeDetails.geometry && placeDetails.geometry.location) {
-                        const coords = {
-                          lat: placeDetails.geometry.location.lat(),
-                          lng: placeDetails.geometry.location.lng(),
-                          description: location.description
-                        };
-                        setToLocationData(coords);
-                      }
-                    } catch (error) {
-                      console.error('Error getting coordinates:', error);
-                    }
-                  }
+                  setToLocationData(await coordsFor(location));
                 }}
-                placeholder="Destination"
-                icon={<MapPin className="w-4 h-4 text-primary" />}
-                className="pl-12 h-12 border border-gray-200 bg-white text-sm sm:text-base font-medium rounded-xl hover:border-gray-300 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-blue-500 shadow-none"
+                placeholder="Drop location"
+                icon={<span className="w-2.5 h-2.5 rounded-sm bg-rose-500 ring-4 ring-rose-500/20" />}
+                className={inputClass}
               />
             </div>
-
-            {/* Date and Time Row */}
-            <div className="grid grid-cols-2 gap-3 mb-3.5">
-              {/* Date of Journey */}
-              <div className="group">
-                <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">Pickup Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                  <Input
-                    type="date"
-                    value={departureDate}
-                    onChange={(e) => setDepartureDate(e.target.value)}
-                    onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                    min={getDefaultDate(0)}
-                    className="pl-9 h-11 border border-gray-200 rounded-xl hover:border-gray-300 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-blue-500 cursor-pointer text-xs sm:text-sm font-medium shadow-none"
-                  />
-                </div>
-              </div>
-
-              {/* Pickup Time */}
-              <div className="group">
-                <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">Pickup Time</label>
-                <div className="relative">
-                  <Input
-                    type="time"
-                    value={pickupTime}
-                    onChange={(e) => setPickupTime(e.target.value)}
-                    onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                    className="pl-3 h-11 border border-gray-200 rounded-xl hover:border-gray-300 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-blue-500 cursor-pointer text-xs sm:text-sm font-medium shadow-none"
-                  />
-                </div>
-              </div>
+            <div className="flex items-center pr-2">
+              <button
+                type="button"
+                onClick={handleSwapLocations}
+                aria-label="Swap pickup and drop"
+                className="w-9 h-9 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-blue-600 active:rotate-180 transition-transform duration-300"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+              </button>
             </div>
-          </Card>
+          </div>
 
-          {/* Search Button */}
-          <Button
-            className="w-full h-12 sm:h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md font-bold text-sm sm:text-base transition-all duration-200 active:scale-[0.99]"
+          {/* Quick date chips */}
+          <div className="flex gap-2 mt-4">
+            {[[today, "Today"], [tomorrow, "Tomorrow"]].map(([date, label]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setDepartureDate(date)}
+                className={cn(
+                  "h-8 px-3.5 rounded-full text-xs font-semibold border transition-colors",
+                  departureDate === date
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "bg-white border-slate-200 text-slate-600"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Date / time tiles */}
+          <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+            <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 px-3 py-2.5 cursor-pointer">
+              <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-medium text-slate-500">Pickup date</span>
+                <input
+                  type="date"
+                  value={departureDate}
+                  min={today}
+                  onChange={(e) => setDepartureDate(e.target.value)}
+                  onClick={openPicker}
+                  className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+                />
+              </span>
+            </label>
+            <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 px-3 py-2.5 cursor-pointer">
+              <Clock className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-medium text-slate-500">Pickup time</span>
+                <input
+                  type="time"
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                  onClick={openPicker}
+                  className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+                />
+              </span>
+            </label>
+          </div>
+
+          <button
+            type="button"
             onClick={handleSearch}
+            className="mt-4 w-full h-[52px] rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-[15px] flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 active:scale-[0.98] transition-transform"
           >
-            <Search className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+            <Search className="w-5 h-5" />
             Search Vehicles
-          </Button>
+          </button>
         </div>
       </div>
     </section>
@@ -352,4 +246,3 @@ const HeroSection = () => {
 };
 
 export default HeroSection;
-

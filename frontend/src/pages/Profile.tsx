@@ -45,7 +45,7 @@ const Profile = () => {
     email: "",
     phone: "",
     location: "Indore, Madhya Pradesh",
-    avatar: "https://github.com/shadcn.png"
+    avatar: ""
   });
 
   const [editProfile, setEditProfile] = useState({
@@ -69,7 +69,7 @@ const Profile = () => {
         location: user.location || "Indore, Madhya Pradesh",
         avatar: user.profilePicture
           ? resolveImageUrl(user.profilePicture)
-          : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=250&auto=format&fit=crop"
+          : ""
       });
 
       // Also update edit profile with current user data
@@ -243,7 +243,7 @@ const Profile = () => {
         ...prev,
         avatar: user?.profilePicture
           ? resolveImageUrl(user.profilePicture)
-          : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=250&auto=format&fit=crop"
+          : ""
       }));
       toast({
         title: "Upload Failed",
@@ -346,7 +346,7 @@ const Profile = () => {
           {/* VIEW 1: MAIN PROFILE VIEW */}
           {/* ========================================================================= */}
           {currentView === 'main' && (
-            <div className="flex-1 flex flex-col bg-white">
+            <div className="flex-1 flex flex-col bg-gray-50">
               {/* Clean Modern Header */}
               <div className="bg-white text-gray-900 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b border-gray-100">
                 <button
@@ -361,6 +361,7 @@ const Profile = () => {
                   My Profile
                 </h1>
                 <div className="w-8" />
+                <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
               </div>
 
               {/* Main Content Area */}
@@ -371,11 +372,17 @@ const Profile = () => {
                   {/* Larger Avatar with Camera Icon */}
                   <div className="relative shrink-0">
                     <div className="w-24 h-24 sm:w-26 sm:h-26 rounded-full overflow-hidden border-2 border-gray-100 shadow-sm bg-gray-50 relative">
-                      <img
-                        src={userProfile.avatar}
-                        alt={userProfile.name}
-                        className="w-full h-full object-cover"
-                      />
+                      {userProfile.avatar ? (
+                        <img
+                          src={userProfile.avatar}
+                          alt={userProfile.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <User className="w-1/2 h-1/2 text-gray-400" />
+                        </div>
+                      )}
                       {isUploadingPhoto && (
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-full">
                           <Loader2 className="w-6 h-6 text-white animate-spin" />
@@ -417,131 +424,137 @@ const Profile = () => {
                 </div>
 
                 {/* All Menu Items in Clean, Uniform Spacing */}
-                <div className="space-y-1 pt-1">
+                <div className="space-y-4 pt-1">
+                  <div className="bg-white rounded-2xl overflow-hidden divide-y divide-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                   {/* Personal Information */}
                   <div
                     onClick={() => handleOpenView('personal')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <User className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <User className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         Personal Information
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
                   {/* My Bookings */}
                   <div
                     onClick={() => navigate('/bookings')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <Ticket className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <Ticket className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         My Bookings
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
+                  </div>
+                  <div className="bg-white rounded-2xl overflow-hidden divide-y divide-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                   {/* Notifications */}
                   <div
                     onClick={() => handleOpenView('notifications')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <Bell className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <Bell className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         Notifications
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
                   {/* Terms & Conditions */}
                   <div
                     onClick={() => navigate('/terms-conditions')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <FileText className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <FileText className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         Terms & Conditions
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
                   {/* Privacy Policy */}
                   <div
                     onClick={() => navigate('/privacy-policy')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <ShieldCheck className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <ShieldCheck className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         Privacy Policy
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
                   {/* Refund Policy */}
                   <div
                     onClick={() => navigate('/refund-policy')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <RotateCcw className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <RotateCcw className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         Refund Policy
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
                   {/* FAQs */}
                   <div
                     onClick={() => navigate('/help')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <HelpCircle className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <HelpCircle className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         FAQs
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
                   {/* Download App */}
                   <div
                     onClick={() => window.open('https://play.google.com/store/apps/details?id=com.chalo.sawari', '_blank')}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <Download className="w-5 h-5 text-gray-700 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-gray-900 group-hover:text-gray-950">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <Download className="w-6 h-6 text-gray-800 stroke-[1.5]" />
+                      <span className="text-base font-normal text-gray-900 group-hover:text-gray-950">
                         Download App
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </div>
 
+                  </div>
+                  <div className="bg-white rounded-2xl overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                   {/* Log Out */}
                   <div
                     onClick={handleLogout}
-                    className="flex items-center justify-between py-3.5 px-2 hover:bg-red-50/60 rounded-xl transition-colors cursor-pointer group"
+                    className="flex items-center justify-between py-4 px-4 hover:bg-red-50/60 transition-colors cursor-pointer group"
                   >
-                    <div className="flex items-center space-x-3.5 min-w-0">
-                      <LogOut className="w-5 h-5 text-red-500 stroke-[1.75]" />
-                      <span className="text-sm sm:text-base font-medium text-red-600 group-hover:text-red-700">
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <LogOut className="w-6 h-6 text-red-500 stroke-[1.5]" />
+                      <span className="text-base font-normal text-red-600 group-hover:text-red-700">
                         Log Out
                       </span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-red-400 group-hover:text-red-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="w-5 h-5 text-red-400 group-hover:text-red-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
                   </div>
                 </div>
               </div>
@@ -576,11 +589,17 @@ const Profile = () => {
                   <div className="flex flex-col items-center justify-center pt-2 pb-3">
                     <div className="relative">
                       <Avatar className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-md bg-gray-100 overflow-hidden relative">
-                        <img
-                          src={userProfile.avatar}
-                          alt={userProfile.name}
-                          className="w-full h-full object-cover"
-                        />
+                        {userProfile.avatar ? (
+                          <img
+                            src={userProfile.avatar}
+                            alt={userProfile.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <User className="w-1/2 h-1/2 text-gray-400" />
+                          </div>
+                        )}
                         {isUploadingPhoto && (
                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-full">
                             <Loader2 className="w-7 h-7 text-white animate-spin" />

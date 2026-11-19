@@ -1,4 +1,3 @@
-import TopNavigation from '../components/TopNavigation';
 import HeroSection from '../components/HeroSection';
 import OffersSection from '../components/OffersSection';
 import WhyChooseUs from '../components/WhyChooseUs';
@@ -7,13 +6,11 @@ import UserBottomNavigation from '../components/UserBottomNavigation';
 
 const Index = () => {
   return (
-    <div className="min-h-screen bg-slate-50/50">
-      <TopNavigation />
+    <div className="min-h-screen bg-slate-50 pb-28 space-y-6">
       <HeroSection />
       <OffersSection />
       <WhyChooseUs />
       <CustomerReviewsSection />
-      <div className="pb-24"></div>
       <UserBottomNavigation />
     </div>
   );

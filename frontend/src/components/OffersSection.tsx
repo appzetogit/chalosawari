@@ -51,13 +51,14 @@ const OffersSection: React.FC = () => {
   if (offers.length === 0) return null;
 
   return (
-    <section className="px-3 pt-3 pb-2 bg-transparent">
-      <h3 className="text-sm sm:text-base font-bold text-slate-900 mb-2.5 px-0.5">
-        Exclusive Offers & Discounts
-      </h3>
+    <section>
+      <div className="px-4 mb-3">
+        <h3 className="text-[17px] font-bold text-slate-900 tracking-tight">Offers for you</h3>
+        <p className="text-xs text-slate-500 mt-0.5">Tap a code to copy it</p>
+      </div>
 
       {/* Horizontal Carousel */}
-      <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none snap-x snap-mandatory">
+      <div className="flex gap-3 overflow-x-auto px-4 pb-1 scrollbar-hide snap-x snap-mandatory scroll-px-4">
         {offers.map((offer, index) => {
           const theme = themes[index % themes.length];
           const code = offer.code || "";
@@ -70,7 +71,7 @@ const OffersSection: React.FC = () => {
           return (
             <div
               key={offer._id}
-              className={`min-w-[260px] sm:min-w-[280px] max-w-[280px] rounded-2xl p-3.5 bg-gradient-to-r ${theme.bgGradient} border ${theme.borderColor} shadow-xs flex justify-between items-center relative overflow-hidden shrink-0 snap-start`}
+              className={`min-w-[260px] sm:min-w-[280px] max-w-[280px] rounded-3xl p-4 bg-gradient-to-br ${theme.bgGradient} border ${theme.borderColor} shadow-xs flex justify-between items-center relative overflow-hidden shrink-0 snap-start`}
             >
               {/* Left Content */}
               <div className="space-y-1.5 z-10 min-w-0">

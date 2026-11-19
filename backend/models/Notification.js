@@ -31,10 +31,15 @@ const notificationSchema = new mongoose.Schema({
   recipientCount: {
     type: Number,
     default: 0
-  }
+  },
+  successCount: { type: Number, default: 0 },
+  failureCount: { type: Number, default: 0 }
 }, {
   timestamps: true
 });
+
+// MongoDB TTL: auto-delete notification records 3 days after creation
+notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 3 * 24 * 60 * 60 });
 
 module.exports = mongoose.model('Notification', notificationSchema);
 
