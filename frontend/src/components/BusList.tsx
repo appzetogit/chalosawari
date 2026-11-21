@@ -122,6 +122,7 @@ interface BusListProps {
     returnDate?: string;
     passengers?: number;
     distanceKm?: number; // road distance from the search page
+    platformFee?: number; // admin flat fee, added to the card price so it matches Checkout
   };
   filters?: VehicleFilters;
   onFiltersChange?: (filters: VehicleFilters) => void;
@@ -611,6 +612,7 @@ interface BusCardProps {
     returnDate?: string;
     passengers?: number;
     distanceKm?: number; // road distance from the search page
+    platformFee?: number; // admin flat fee, added to the card price so it matches Checkout
   };
   onViewDetails: (bus: Bus) => void;
   onBookNow: (bus: Bus) => void;
@@ -729,7 +731,7 @@ const BusCard: React.FC<BusCardProps> = ({ bus, searchParams, onViewDetails, onB
 
         if (ratePerKm > 0) {
           // Calculate total price: distance × 2 × rate per km (both ways / aane aur jane dono ka)
-          const totalPrice = Math.round(ratePerKm * distance * 2); // Round to whole rupees
+          const totalPrice = Math.round(ratePerKm * distance * 2) + (searchParams.platformFee || 0); // same total as Checkout (fare + platform fee)
 
           return (
             <div className="flex items-baseline gap-1.5">

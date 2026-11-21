@@ -122,6 +122,7 @@ interface CarListProps {
     returnDate?: string;
     passengers?: number;
     distanceKm?: number; // road distance from the search page
+    platformFee?: number; // admin flat fee, added to the card price so it matches Checkout
   };
   filters?: VehicleFilters;
   onFiltersChange?: (filters: VehicleFilters) => void;
@@ -659,6 +660,7 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
     returnDate?: string;
     passengers?: number;
     distanceKm?: number; // road distance from the search page
+    platformFee?: number; // admin flat fee, added to the card price so it matches Checkout
   };
   onViewDetails: (car: Car) => void;
   onBookNow: (car: Car) => void;
@@ -778,7 +780,7 @@ const CarCard = ({ car, searchParams, onViewDetails, onBookNow }: {
 
         if (ratePerKm > 0) {
           // Calculate total price: distance × 2 × rate per km (both ways / aane aur jane dono ka)
-          const totalPrice = Math.round(ratePerKm * distance * 2); // Round to whole rupees
+          const totalPrice = Math.round(ratePerKm * distance * 2) + (searchParams.platformFee || 0); // same total as Checkout (fare + platform fee)
 
           return (
             <div className="flex items-baseline gap-1.5">

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Calendar, Clock, Edit3, Route } from 'lucide-react';
 import { calculateDistance } from '../lib/distanceUtils';
+import { vehicleSettingService } from '../services/vehicleSettingApi';
 import TopNavigation from '../components/TopNavigation';
 import UserBottomNavigation from '../components/UserBottomNavigation';
 import BusList from '../components/BusList';
@@ -52,11 +53,19 @@ const VihicleSearch = () => {
       .catch(() => setRoadDistance(null));
   }, [fromData?.lat, fromData?.lng, toData?.lat, toData?.lng]);
 
+  // Admin platform fee: cards add it so the list price equals the Checkout total
+  const [platformFee, setPlatformFee] = useState(0);
+  useEffect(() => {
+    vehicleSettingService.getPublicVehicleSettings()
+      .then(data => setPlatformFee(data.platformFee || 0))
+      .catch(() => setPlatformFee(0));
+  }, []);
+
   const tripDistance = roadDistance ?? (fromData && toData ? calculateDistance(fromData, toData) : 0);
   // Lists and Checkout read distanceKm from here so the fare matches the km shown
   const searchParams = useMemo(
-    () => (roadDistance ? { ...routeState, distanceKm: roadDistance } : routeState),
-    [routeState, roadDistance]
+    () => ({ ...routeState, platformFee, ...(roadDistance ? { distanceKm: roadDistance } : {}) }),
+    [routeState, roadDistance, platformFee]
   );
 
   // Determine initial selected type (default to car if user searched for car or default to car/bus)

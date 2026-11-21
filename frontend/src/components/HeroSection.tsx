@@ -23,6 +23,12 @@ const LoadingAnimation = () => (
   </div>
 );
 
+// 'YYYY-MM-DD' -> '21/11/2026'
+const displayDate = (v: string) => {
+  const [y, m, d] = v.split('-');
+  return y && m && d ? `${d}/${m}/${y}` : v;
+};
+
 const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
@@ -53,8 +59,9 @@ const HeroSection = () => {
   const [toLocation, setToLocation] = useState("");
   const [fromLocationData, setFromLocationData] = useState<Coords>(null);
   const [toLocationData, setToLocationData] = useState<Coords>(null);
-  const [departureDate, setDepartureDate] = useState(() => getDefaultDate(1));
-  const [pickupTime, setPickupTime] = useState("09:00");
+  // Empty on purpose: user must pick both; handleSearch blocks until they do
+  const [departureDate, setDepartureDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSwapLocations = () => {
@@ -70,8 +77,8 @@ const HeroSection = () => {
 
     const error =
       !fromLocation.trim() || !toLocation.trim() ? "Please select pickup and drop locations"
-      : !dateRegex.test(departureDate) ? "Please select a valid pickup date"
-      : !timeRegex.test(pickupTime) ? "Please select a valid pickup time"
+      : !dateRegex.test(departureDate) ? "Please select pickup date"
+      : !timeRegex.test(pickupTime) ? "Please select pickup time"
       : fromLocation.trim().toLowerCase() === toLocation.trim().toLowerCase() ? "Pickup and drop locations cannot be the same"
       : new Date(`${departureDate}T${pickupTime}`) < new Date() ? "Pickup time has already passed, please choose a later time"
       : null;
@@ -105,7 +112,6 @@ const HeroSection = () => {
   };
 
   const today = getDefaultDate(0);
-  const tomorrow = getDefaultDate(1);
   const openPicker = (e: React.MouseEvent<HTMLInputElement>) => e.currentTarget.showPicker?.();
 
   return (
@@ -185,39 +191,26 @@ const HeroSection = () => {
             </div>
           </div>
 
-          {/* Quick date chips */}
-          <div className="flex gap-2 mt-4">
-            {[[today, "Today"], [tomorrow, "Tomorrow"]].map(([date, label]) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setDepartureDate(date)}
-                className={cn(
-                  "h-8 px-3.5 rounded-full text-xs font-semibold border transition-colors",
-                  departureDate === date
-                    ? "bg-blue-600 border-blue-600 text-white"
-                    : "bg-white border-slate-200 text-slate-600"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
           {/* Date / time tiles */}
-          <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+          <div className="grid grid-cols-2 gap-2.5 mt-4">
             <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 px-3 py-2.5 cursor-pointer">
               <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
               <span className="min-w-0 flex-1">
                 <span className="block text-[11px] font-medium text-slate-500">Pickup date</span>
-                <input
-                  type="date"
-                  value={departureDate}
-                  min={today}
-                  onChange={(e) => setDepartureDate(e.target.value)}
-                  onClick={openPicker}
-                  className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none [&::-webkit-calendar-picker-indicator]:hidden"
-                />
+                {/* Native input's format follows the phone locale, so show DD/MM/YYYY on top and keep the picker underneath */}
+                <span className="relative block">
+                  <span className={cn("block text-sm font-semibold", departureDate ? "text-slate-900" : "text-slate-400")}>
+                    {departureDate ? displayDate(departureDate) : "DD/MM/YYYY"}
+                  </span>
+                  <input
+                    type="date"
+                    value={departureDate}
+                    min={today}
+                    onChange={(e) => setDepartureDate(e.target.value)}
+                    onClick={openPicker}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                </span>
               </span>
             </label>
             <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 px-3 py-2.5 cursor-pointer">

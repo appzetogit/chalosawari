@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, MapPin, Calendar, Clock, Users, Car, CreditCard, Wallet, Smartphone, Shield, CheckCircle, Tag, ChevronRight, Check, Percent, Bus, Loader2, ArrowLeft, Info } from 'lucide-react';
+import { X, MapPin, Calendar, Clock, Users, Car, CreditCard, Wallet, Smartphone, Shield, CheckCircle, Tag, ChevronRight, Check, Percent, Bus, Loader2, ArrowLeft, Info, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -521,7 +521,7 @@ const Checkout: React.FC<CheckoutProps> = ({ isOpen, onClose, vehicle, bookingDa
   return (
     <div className="fixed inset-0 z-[105] flex flex-col bg-slate-50 w-full h-full min-h-screen overflow-hidden">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-md px-4 py-3 sm:px-6 sm:py-4 border-b border-gray-200/80 flex items-center justify-between shadow-sm">
+      <div className="sticky top-0 z-20 px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between">
         <div>
           <h2 className="text-base sm:text-lg font-bold text-gray-900">Complete Your Booking</h2>
           <p className="text-xs text-gray-500">Review your trip details and confirm payment</p>
@@ -781,6 +781,20 @@ const Checkout: React.FC<CheckoutProps> = ({ isOpen, onClose, vehicle, bookingDa
               </button>
             );
           })}
+          {/* Offline booking: nothing paid in-app, the call center books it */}
+          <a
+            href="tel:+919171838260"
+            className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-gray-300 bg-white text-left transition-all"
+          >
+            <span className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-green-100 text-green-700">
+              <Phone className="h-4 w-4" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-semibold text-gray-900">0% Booking (Offline)</span>
+              <span className="block text-xs text-gray-500">Call our call center to book: +91 9171838260</span>
+            </span>
+            <ChevronRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          </a>
         </div>
       </div>
 
